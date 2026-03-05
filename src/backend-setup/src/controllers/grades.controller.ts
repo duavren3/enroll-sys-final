@@ -66,7 +66,7 @@ export const updateGrade = async (req: AuthRequest, res: Response) => {
 
     await run(
       `UPDATE enrollment_subjects SET 
-        grade = ?, updated_at = datetime('now', 'utc') || 'Z'
+        grade = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
       WHERE id = ?`,
       [grade, id]
     );
@@ -107,7 +107,7 @@ export const bulkUpdateGrades = async (req: AuthRequest, res: Response) => {
 
     const updatePromises = grades.map((g: any) =>
       run(
-        `UPDATE enrollment_subjects SET grade = ?, grade_status = 'Submitted', updated_at = datetime('now', 'utc') || 'Z' WHERE id = ?`,
+        `UPDATE enrollment_subjects SET grade = ?, grade_status = 'Submitted', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
         [g.grade, g.enrollment_subject_id]
       )
     );
@@ -152,7 +152,7 @@ export const getPendingGrades = async (req: AuthRequest, res: Response) => {
         es.subject_id,
         es.grade,
         es.grade_status,
-        CASE WHEN es.updated_at LIKE '%Z' THEN es.updated_at ELSE es.updated_at || 'Z' END as updated_at,
+        REPLACE(CASE WHEN es.updated_at LIKE '%Z' THEN es.updated_at ELSE es.updated_at || 'Z' END, ' ', 'T') as updated_at,
         s.subject_code,
         s.subject_name,
         s.units,
