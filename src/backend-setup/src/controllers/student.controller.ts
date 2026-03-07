@@ -74,6 +74,7 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response) => {
       middle_name,
       last_name,
       suffix,
+      email,
       contact_number,
       address,
       birth_date,
@@ -102,6 +103,27 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response) => {
       WHERE user_id = ?`,
       [first_name, middle_name, last_name, suffix, contact_number, address, birth_date, gender, course || null, year_level || null, section || null, userId]
     );
+
+    // Update email if provided
+    if (email) {
+      // Check if email is already taken by another user
+      const existingUsers = await query(
+        'SELECT id FROM users WHERE email = ? AND id != ?',
+        [email, userId]
+      );
+
+      if (existingUsers.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email is already taken'
+        });
+      }
+
+      await run(
+        'UPDATE users SET email = ? WHERE id = ?',
+        [email, userId]
+      );
+    }
 
     // Update username if provided
     if (username) {

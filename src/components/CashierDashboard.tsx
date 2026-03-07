@@ -78,6 +78,9 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
   const [editingFees, setEditingFees] = useState(false);
   const [feeError, setFeeError] = useState('');
   const [currentFeeData, setCurrentFeeData] = useState({ course: '', tuition_per_unit: 700, registration: 1500, library: 500, lab: 2000, id_fee: 200, others: 300 });
+  const [penaltyFeeConfig, setPenaltyFeeConfig] = useState<number>(500);
+  const [editingPenaltyFee, setEditingPenaltyFee] = useState(false);
+  const [penaltyFeeInput, setPenaltyFeeInput] = useState('500');
 
   const loadFees = async () => {
     try {
@@ -94,6 +97,15 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
         setCurrentFeeData(found);
       } else {
         setFeeError('No course fees found. Please run database setup first.');
+      }
+      // Load penalty fee config
+      try {
+        const penaltyResp = await cashierService.getPenaltyFeeConfig();
+        const pf = penaltyResp?.data?.penalty_fee ?? 500;
+        setPenaltyFeeConfig(pf);
+        setPenaltyFeeInput(pf.toString());
+      } catch (e) {
+        console.error('Failed to load penalty fee config', e);
       }
     } catch (err: any) {
       console.error('Failed loading fees', err);
@@ -1097,6 +1109,9 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                   const enrollDate = new Date(ip.enrollment_date || ip.enrollment_created_at || ip.created_at);
                   const periodMonthOffset: Record<string, number> = {
                     'Down Payment': 0,
+                    'Prelim Period': 1,
+                    'Midterm Period': 2,
+                    'Finals Period': 3,
                     'Prelim': 1,
                     'Midterm': 2,
                     'Finals': 3
@@ -1131,8 +1146,8 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                             <p className="text-xs text-slate-500">Due Date: <span className={`font-medium ${isLate ? 'text-red-600' : 'text-slate-700'}`}>{dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span></p>
                             <p className="text-sm text-slate-700">{isPenaltyPayment ? 'Penalty Fee Due' : 'Total Amount Due'}: <span className="font-semibold">₱{displayAmountDue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></p>
                             <p className="text-sm text-slate-700">Amount Paid: <span className="font-semibold text-green-700">₱{amountPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></p>
-                            {penaltyAmt > 0 && !isPenaltyPayment && (
-                              <p className="text-sm text-red-700 font-medium">Late Payment Penalty: <span className="font-semibold">₱{penaltyAmt.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></p>
+                            {!isPenaltyPayment && (
+                              <p className={`text-sm font-medium ${penaltyAmt > 0 ? 'text-red-700' : 'text-slate-500'}`}>Penalty Fee: <span className="font-semibold">₱{penaltyAmt.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></p>
                             )}
                             <p className="text-sm text-slate-700">{isPenaltyPayment ? 'Penalty Balance' : 'Outstanding Balance'}: <span className={`font-semibold ${balance > 0 ? 'text-orange-700' : 'text-green-700'}`}>₱{balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></p>
                             <p className="text-xs text-slate-500">Payment Method: {ip.payment_method}</p>
@@ -1181,7 +1196,7 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="!text-amber-700 hover:!bg-amber-50 !border-amber-300"
+                                className="!text-amber-700 !bg-amber-50 !border-amber-300"
                                 onClick={() => {
                                   setPenaltyPaymentId(ip.id);
                                   setPenaltyAmount('');
@@ -1277,16 +1292,16 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
           </div>
         </div>
 
-        {/* Add Penalty Dialog */}
+        {/* Add Penalty Dialog - kept for manual override if needed */}
         <Dialog open={penaltyPaymentId !== null} onOpenChange={(open) => { if (!open) { setPenaltyPaymentId(null); setPenaltyAmount(''); setPenaltyReason(''); } }}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-amber-700">
                 <AlertTriangle className="h-5 w-5" />
-                Add Penalty
+                Add Manual Penalty
               </DialogTitle>
               <DialogDescription>
-                Add a penalty fee to this installment payment. The penalty amount will be added to the student's balance.
+                Note: Penalties are now applied automatically when a student submits a payment past its due date (₱{penaltyFeeConfig.toLocaleString('en-US', { minimumFractionDigits: 2 })} per overdue period). Use this only if you need to add an additional penalty manually.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
@@ -1324,6 +1339,22 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
         </Dialog>
       </Card>
     );
+  };
+
+  const handleSavePenaltyFee = async () => {
+    const val = parseFloat(penaltyFeeInput);
+    if (isNaN(val) || val < 0) {
+      alert('Please enter a valid penalty fee amount');
+      return;
+    }
+    try {
+      await cashierService.updatePenaltyFeeConfig(val);
+      setPenaltyFeeConfig(val);
+      setEditingPenaltyFee(false);
+      alert('Installment penalty fee updated successfully');
+    } catch (err: any) {
+      alert(err.message || 'Failed to update penalty fee');
+    }
   };
 
   const renderFeeManagementContent = () => {
@@ -1596,6 +1627,66 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                   >
                     <Save className="h-4 w-4 mr-2" />
                     Save Changes
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+
+        {/* Installment Late Penalty Fee Configuration */}
+        <Card className="border-0 shadow-lg">
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-4">
+            <h3 className="text-white font-medium text-lg">Installment Late Penalty Fee</h3>
+            <p className="text-amber-100 text-sm">This penalty fee is automatically applied when a student submits an installment payment past its due date</p>
+          </div>
+          
+          <div className="p-6">
+            {!editingPenaltyFee ? (
+              <>
+                <div className="bg-amber-50 rounded-lg p-4 border border-amber-200 mb-4">
+                  <p className="text-sm text-slate-600 mb-2">Current Penalty Fee (per overdue period)</p>
+                  <p className="text-3xl font-bold text-amber-600">₱{penaltyFeeConfig.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-xs text-slate-500 mt-2">Applied automatically when a student pays an installment period after its due date</p>
+                </div>
+                <Button 
+                  onClick={() => { setEditingPenaltyFee(true); setPenaltyFeeInput(penaltyFeeConfig.toString()); }}
+                  className="w-full !bg-gradient-to-r !from-amber-500 !to-orange-500 !text-white shadow-md"
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Penalty Fee
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Penalty Fee Amount (₱)</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={penaltyFeeInput}
+                      onChange={(e) => setPenaltyFeeInput(e.target.value)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">This flat fee will be added to each overdue installment payment when the student submits it</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <Button 
+                    onClick={() => { setEditingPenaltyFee(false); setPenaltyFeeInput(penaltyFeeConfig.toString()); }}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={handleSavePenaltyFee}
+                    className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Penalty Fee
                   </Button>
                 </div>
               </>

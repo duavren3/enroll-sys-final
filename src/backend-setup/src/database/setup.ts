@@ -529,6 +529,26 @@ async function setupDatabase() {
     console.log('✅ School years table created');
     db.exec('CREATE INDEX IF NOT EXISTS idx_school_year ON school_years(school_year)');
 
+    // Create semesters table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS semesters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        school_year_id INTEGER NOT NULL,
+        semester_number INTEGER NOT NULL CHECK(semester_number IN (1, 2, 3)),
+        semester_name TEXT NOT NULL,
+        start_date TEXT,
+        end_date TEXT,
+        is_active INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (school_year_id) REFERENCES school_years(id) ON DELETE CASCADE,
+        UNIQUE(school_year_id, semester_number)
+      )
+    `);
+    console.log('✅ Semesters table created');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_semester_school_year ON semesters(school_year_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_semester_active ON semesters(is_active)');
+
     // Create programs table
     db.exec(`
       CREATE TABLE IF NOT EXISTS programs (
@@ -637,7 +657,8 @@ async function setupDatabase() {
       ['library_fee', '1000.00', 'Default library fee'],
       ['lab_fee', '1500.00', 'Default laboratory fee'],
       ['id_fee', '500.00', 'Default ID fee'],
-      ['others_fee', '1000.00', 'Default miscellaneous/other fees']
+      ['others_fee', '1000.00', 'Default miscellaneous/other fees'],
+      ['installment_penalty_fee', '500.00', 'Penalty fee applied automatically to overdue installment payments']
     ];
     
     const insertManySettings = db.transaction((settings: any[]) => {

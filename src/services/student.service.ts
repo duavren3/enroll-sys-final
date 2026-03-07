@@ -39,6 +39,7 @@ class StudentService {
     middle_name?: string;
     last_name?: string;
     suffix?: string;
+    email?: string;
     contact_number?: string;
     address?: string;
     birth_date?: string;

@@ -114,6 +114,43 @@ export const submitInstallmentPayment = async (req: Request, res: Response) => {
     const actualAmountPaid = amountPaid || amount;
     console.log('actualAmountPaid to store:', actualAmountPaid);
 
+    // --- Auto-apply penalty fee if payment is past due ---
+    // Only apply to regular period payments, not to penalty fee payments themselves
+    const isPenaltyFeePayment = period.includes('- Late Penalty Fee');
+    let penaltyToApply = 0;
+
+    if (!isPenaltyFeePayment) {
+      // Get enrollment date to calculate due date
+      const enrollmentRows = await query(
+        `SELECT enrollment_date, created_at FROM enrollments WHERE id = ?`,
+        [enrollmentId]
+      );
+      const enrollment = enrollmentRows && enrollmentRows[0] ? enrollmentRows[0] : null;
+
+      if (enrollment) {
+        const enrollDate = new Date(enrollment.enrollment_date || enrollment.created_at);
+        const periodMonthOffset: Record<string, number> = {
+          'Down Payment': 0,
+          'Prelim Period': 1,
+          'Midterm Period': 2,
+          'Finals Period': 3
+        };
+        const offset = periodMonthOffset[period] ?? 1;
+        const dueDate = new Date(enrollDate);
+        dueDate.setMonth(dueDate.getMonth() + offset);
+        const now = new Date();
+
+        if (now > dueDate) {
+          // Payment is past due - fetch the configured penalty fee
+          const settingRows = await query(
+            `SELECT setting_value FROM system_settings WHERE setting_key = 'installment_penalty_fee' LIMIT 1`
+          );
+          penaltyToApply = settingRows && settingRows[0] ? parseFloat(settingRows[0].setting_value) : 500.00;
+          console.log(`Payment for ${period} is past due. Auto-applying penalty of ₱${penaltyToApply}`);
+        }
+      }
+    }
+
     // Check if there's an existing rejected payment for this period that can be resubmitted
     const existingPayment = await query(
       `SELECT id FROM installment_payments 
@@ -128,20 +165,20 @@ export const submitInstallmentPayment = async (req: Request, res: Response) => {
       // Update the existing rejected payment instead of creating a duplicate
       await run(
         `UPDATE installment_payments SET 
-         amount = ?, amount_paid = ?, status = 'Pending', 
+         amount = ?, amount_paid = ?, penalty_amount = ?, status = 'Pending', 
          payment_method = ?, reference_number = ?, receipt_path = ?,
          updated_at = datetime('now')
          WHERE id = ?`,
-        [amount, actualAmountPaid, paymentMethod, referenceNumber || null, receiptPath || null, existingPayment[0].id]
+        [amount, actualAmountPaid, penaltyToApply, paymentMethod, referenceNumber || null, receiptPath || null, existingPayment[0].id]
       );
       paymentId = existingPayment[0].id;
     } else {
       // Create the installment payment record with both amount and amount_paid
       const result = await run(
         `INSERT INTO installment_payments 
-         (enrollment_id, student_id, amount, amount_paid, period, status, payment_method, reference_number, receipt_path, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        [enrollmentId, studentId, amount, actualAmountPaid, period, 'Pending', paymentMethod, referenceNumber || null, receiptPath || null]
+         (enrollment_id, student_id, amount, amount_paid, penalty_amount, period, status, payment_method, reference_number, receipt_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [enrollmentId, studentId, amount, actualAmountPaid, penaltyToApply, period, 'Pending', paymentMethod, referenceNumber || null, receiptPath || null]
       );
       paymentId = result.lastID;
     }
@@ -190,17 +227,25 @@ export const getInstallmentSchedule = async (req: Request, res: Response) => {
       [enrollmentId]
     );
 
+    // Fetch configured penalty fee so frontend can show it
+    const settingRows = await query(
+      `SELECT setting_value FROM system_settings WHERE setting_key = 'installment_penalty_fee' LIMIT 1`
+    );
+    const penaltyFee = settingRows && settingRows[0] ? parseFloat(settingRows[0].setting_value) : 500.00;
+
     if (!payments || payments.length === 0) {
       return res.json({ 
         success: true, 
         data: [],
+        penalty_fee: penaltyFee,
         message: 'No installment schedule found'
       });
     }
 
     res.json({ 
       success: true, 
-      data: payments || []
+      data: payments || [],
+      penalty_fee: penaltyFee
     });
   } catch (err) {
     console.error('Failed to get installment schedule:', err);

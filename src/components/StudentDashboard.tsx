@@ -92,6 +92,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
     middle_name: '',
     last_name: '',
     suffix: '',
+    email: '',
     contact_number: '',
     address: '',
     birth_date: '',
@@ -109,6 +110,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
   const [scholarshipType, setScholarshipType] = useState<string>('None');
   const [scholarshipLetter, setScholarshipLetter] = useState<File | null>(null);
   const [installmentSchedule, setInstallmentSchedule] = useState<any[]>([]);
+  const [penaltyFeeConfig, setPenaltyFeeConfig] = useState<number>(0);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [availableCourses, setAvailableCourses] = useState<string[]>([]);
 
@@ -266,6 +268,9 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
         const resp = await studentService.getInstallmentSchedule(currentEnrollment.id);
         if (mounted) {
           const payments = resp?.data || [];
+          // Get penalty fee config from backend
+          const configuredPenaltyFee = resp?.penalty_fee ?? 0;
+          setPenaltyFeeConfig(configuredPenaltyFee);
           // Get the down payment
           const downPayment = payments.find((p: any) => p.period === 'Down Payment');
           
@@ -334,6 +339,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           middle_name: student.middle_name || '',
           last_name: student.last_name || '',
           suffix: student.suffix || '',
+          email: student.email || '',
           contact_number: student.contact_number || '',
           address: student.address || '',
           birth_date: student.birth_date || '',
@@ -1437,13 +1443,26 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                 // Check if any previous period has an unpaid penalty (blocks paying next periods)
                 const hasUnpaidPriorPenalty = installmentSchedule.slice(0, idx).some((prev: any) => (prev.penalty_amount || 0) > 0);
                 const canPayPeriod = !hasUnpaidPriorPenalty && (payment.status === 'Not Started' || payment.status === 'Rejected');
+                // Auto-calculated penalty for overdue periods not yet submitted
+                const autoCalculatedPenalty = (isOverdue && payment.status === 'Not Started' && penaltyFeeConfig > 0) ? penaltyFeeConfig : 0;
+                // Display penalty: from DB if submitted, auto-calculated if not yet submitted and overdue
+                const displayPenalty = payment.penalty_amount || autoCalculatedPenalty;
                 return (
                 <React.Fragment key={`${payment.period}-${idx}`}>
                   <div className="bg-white rounded-lg p-4 flex items-center justify-between">
                     <div className="flex-1">
                       <p className="font-semibold text-slate-900">{payment.period} Payment</p>
                       <p className="text-sm text-slate-600">Amount Due: ₱{(payment.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      {displayPenalty > 0 && (
+                        <p className="text-sm text-red-600 font-medium">+ Late Penalty Fee: ₱{displayPenalty.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      )}
+                      {displayPenalty > 0 && (
+                        <p className="text-sm font-semibold text-slate-900">Total: ₱{((payment.amount || 0) + displayPenalty).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      )}
                       <p className={`text-xs mt-1 ${isOverdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>Due Date: {dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{isOverdue ? ' (Overdue)' : ''}</p>
+                      {isOverdue && payment.status === 'Not Started' && penaltyFeeConfig > 0 && (
+                        <p className="text-xs text-red-500 mt-1">⚠ A late penalty fee of ₱{penaltyFeeConfig.toLocaleString('en-US', { minimumFractionDigits: 2 })} will be applied to this payment</p>
+                      )}
                       <Badge className={`mt-2 ${
                         payment.status === 'Approved' ? 'bg-green-100 text-green-800' :
                         payment.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -1473,26 +1492,14 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                       </Button>
                     )}
                   </div>
-                  <div className={`rounded-lg p-4 flex items-center justify-between ml-4 ${(payment.penalty_amount || 0) > 0 ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'}`}>
+                  {(payment.penalty_amount || 0) > 0 && payment.status !== 'Not Started' && (
+                  <div className="rounded-lg p-4 flex items-center justify-between ml-4 bg-red-50 border border-red-200">
                     <div className="flex-1">
-                      <p className={`font-semibold ${(payment.penalty_amount || 0) > 0 ? 'text-red-800' : 'text-slate-600'}`}>Late Penalty Fee</p>
-                      <p className={`text-sm font-semibold ${(payment.penalty_amount || 0) > 0 ? 'text-red-700' : 'text-slate-500'}`}>₱{(payment.penalty_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      <p className="font-semibold text-red-800">Late Penalty Fee (included in payment)</p>
+                      <p className="text-sm font-semibold text-red-700">₱{(payment.penalty_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </div>
-                    {(payment.penalty_amount || 0) > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="!text-red-700 !border-red-300 hover:!bg-red-100"
-                        onClick={() => {
-                          setPenaltyPaymentAmount(payment.penalty_amount);
-                          setSelectedInstallmentPeriod(payment.period);
-                          setInstallmentPaymentOpen(true);
-                        }}
-                      >
-                        Pay Now
-                      </Button>
-                    )}
                   </div>
+                  )}
                 </React.Fragment>
                 );
               })}
@@ -1577,6 +1584,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
     const requiredProfileFields = [
       studentProfile?.first_name,
       studentProfile?.last_name,
+      studentProfile?.email,
       studentProfile?.contact_number,
       studentProfile?.address,
       studentProfile?.birth_date,
@@ -1597,20 +1605,6 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           </div>
           <h3 className="text-xl font-semibold mb-2">Complete Your Profile First</h3>
           <p className="text-slate-600 mb-6">Before you can enroll, please complete your profile with all required information.</p>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 text-sm text-blue-900">
-            <p className="font-medium mb-2">Required fields to complete:</p>
-            <ul className="text-left space-y-1">
-              {!studentProfile?.first_name && <li>• First Name</li>}
-              {!studentProfile?.last_name && <li>• Last Name</li>}
-              {!studentProfile?.contact_number && <li>• Contact Number</li>}
-              {!studentProfile?.address && <li>• Address</li>}
-              {!studentProfile?.birth_date && <li>• Birth Date</li>}
-              {!studentProfile?.gender && <li>• Gender</li>}
-              {!studentProfile?.course && <li>• Course</li>}
-              {!studentProfile?.year_level && <li>• Year Level</li>}
-              {!studentProfile?.section && <li>• Class Section</li>}
-            </ul>
-          </div>
           <Button 
             onClick={() => setActiveSection('My Profile')}
             className="bg-gradient-to-r from-blue-600 to-indigo-600"
@@ -2296,13 +2290,26 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                 // Check if any previous period has an unpaid penalty (blocks paying next periods)
                 const hasUnpaidPriorPenalty = installmentSchedule.slice(0, idx).some((prev: any) => (prev.penalty_amount || 0) > 0);
                 const canPayPeriod = !hasUnpaidPriorPenalty && (payment.status === 'Not Started' || payment.status === 'Rejected');
+                // Auto-calculated penalty for overdue periods not yet submitted
+                const autoCalculatedPenalty = (isOverdue && payment.status === 'Not Started' && penaltyFeeConfig > 0) ? penaltyFeeConfig : 0;
+                // Display penalty: from DB if submitted, auto-calculated if not yet submitted and overdue
+                const displayPenalty = payment.penalty_amount || autoCalculatedPenalty;
                 return (
                 <React.Fragment key={`${payment.period}-${idx}`}>
                   <div className="bg-white rounded-lg p-4 flex items-center justify-between">
                     <div className="flex-1">
                       <p className="font-semibold text-slate-900">{payment.period} Payment</p>
                       <p className="text-sm text-slate-600">Amount Due: ₱{(payment.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      {displayPenalty > 0 && (
+                        <p className="text-sm text-red-600 font-medium">+ Late Penalty Fee: ₱{displayPenalty.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      )}
+                      {displayPenalty > 0 && (
+                        <p className="text-sm font-semibold text-slate-900">Total: ₱{((payment.amount || 0) + displayPenalty).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      )}
                       <p className={`text-xs mt-1 ${isOverdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>Due Date: {dueDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}{isOverdue ? ' (Overdue)' : ''}</p>
+                      {isOverdue && payment.status === 'Not Started' && penaltyFeeConfig > 0 && (
+                        <p className="text-xs text-red-500 mt-1">⚠ A late penalty fee of ₱{penaltyFeeConfig.toLocaleString('en-US', { minimumFractionDigits: 2 })} will be applied to this payment</p>
+                      )}
                       <Badge className={`mt-2 ${
                         payment.status === 'Approved' ? 'bg-green-100 text-green-800' :
                         payment.status === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -2332,26 +2339,14 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                       </Button>
                     )}
                   </div>
-                  <div className={`rounded-lg p-4 flex items-center justify-between ml-4 ${(payment.penalty_amount || 0) > 0 ? 'bg-red-50 border border-red-200' : 'bg-slate-50 border border-slate-200'}`}>
+                  {(payment.penalty_amount || 0) > 0 && payment.status !== 'Not Started' && (
+                  <div className="rounded-lg p-4 flex items-center justify-between ml-4 bg-red-50 border border-red-200">
                     <div className="flex-1">
-                      <p className={`font-semibold ${(payment.penalty_amount || 0) > 0 ? 'text-red-800' : 'text-slate-600'}`}>Late Penalty Fee</p>
-                      <p className={`text-sm font-semibold ${(payment.penalty_amount || 0) > 0 ? 'text-red-700' : 'text-slate-500'}`}>₱{(payment.penalty_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      <p className="font-semibold text-red-800">Late Penalty Fee (included in payment)</p>
+                      <p className="text-sm font-semibold text-red-700">₱{(payment.penalty_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </div>
-                    {(payment.penalty_amount || 0) > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="!text-red-700 !border-red-300 hover:!bg-red-100"
-                        onClick={() => {
-                          setPenaltyPaymentAmount(payment.penalty_amount);
-                          setSelectedInstallmentPeriod(payment.period);
-                          setInstallmentPaymentOpen(true);
-                        }}
-                      >
-                        Pay Now
-                      </Button>
-                    )}
                   </div>
+                  )}
                 </React.Fragment>
                 );
               })}
@@ -2433,6 +2428,16 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                       <SelectItem value="Other">Other</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <Label htmlFor="profile-email">Email</Label>
+                  <Input 
+                    id="profile-email"
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                    className="mt-2"
+                  />
                 </div>
                 <div>
                   <Label htmlFor="profile-contact">Contact Number</Label>
@@ -2767,6 +2772,8 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                   {activeSection === 'Enroll' && 'Enroll'}
                   {activeSection === 'Subjects' && 'Subjects'}
                   {activeSection === 'My Schedule' && 'My Schedule'}
+                  {activeSection === 'Tuition and Fees' && 'Tuition and Fees'}
+                  {activeSection === 'Grades' && 'Grades'}
                   {activeSection === 'My Profile' && 'My Profile'}
                 </h1>
                 <p className="text-sm text-slate-600">Welcome back to your learning portal</p>

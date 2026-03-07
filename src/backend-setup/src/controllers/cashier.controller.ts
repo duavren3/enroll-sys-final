@@ -880,4 +880,51 @@ export const addInstallmentPenalty = async (req: AuthRequest, res: Response) => 
   }
 };
 
-export default { listPendingTransactions, listTransactions, processTransaction, cashierReport, listTuitionAssessments, approveTuitionAssessment, listInstallmentPayments, approveInstallmentPayment, rejectInstallmentPayment, listEnrollmentsForReview, updateEnrollmentFees, approveEnrollmentReview, rejectEnrollmentReview, getFees, updateFees, addInstallmentPenalty };
+export const getPenaltyFeeConfig = async (req: AuthRequest, res: Response) => {
+  try {
+    const rows = await query(
+      `SELECT setting_value FROM system_settings WHERE setting_key = 'installment_penalty_fee' LIMIT 1`
+    );
+    const penaltyFee = rows && rows[0] ? parseFloat(rows[0].setting_value) : 500.00;
+    res.json({ success: true, data: { penalty_fee: penaltyFee } });
+  } catch (error) {
+    console.error('Get penalty fee config error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const updatePenaltyFeeConfig = async (req: AuthRequest, res: Response) => {
+  try {
+    const { penalty_fee } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (penalty_fee === undefined || isNaN(penalty_fee) || penalty_fee < 0) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid penalty fee amount' });
+    }
+
+    // Upsert the penalty fee setting
+    await run(
+      `INSERT INTO system_settings (setting_key, setting_value, description, updated_at)
+       VALUES ('installment_penalty_fee', ?, 'Penalty fee applied automatically to overdue installment payments', datetime('now'))
+       ON CONFLICT(setting_key) DO UPDATE SET setting_value = ?, updated_at = datetime('now')`,
+      [penalty_fee.toString(), penalty_fee.toString()]
+    );
+
+    // Log activity
+    await run(
+      'INSERT INTO activity_logs (user_id, action, entity_type, entity_id, description) VALUES (?, ?, ?, ?, ?)',
+      [userId, 'CASHIER_UPDATE_PENALTY_FEE', 'system_settings', 0, `Updated installment penalty fee to ₱${parseFloat(penalty_fee).toFixed(2)}`]
+    );
+
+    res.json({ success: true, message: `Penalty fee updated to ₱${parseFloat(penalty_fee).toFixed(2)}` });
+  } catch (error) {
+    console.error('Update penalty fee config error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export default { listPendingTransactions, listTransactions, processTransaction, cashierReport, listTuitionAssessments, approveTuitionAssessment, listInstallmentPayments, approveInstallmentPayment, rejectInstallmentPayment, listEnrollmentsForReview, updateEnrollmentFees, approveEnrollmentReview, rejectEnrollmentReview, getFees, updateFees, addInstallmentPenalty, getPenaltyFeeConfig, updatePenaltyFeeConfig };

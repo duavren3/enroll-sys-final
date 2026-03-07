@@ -15,6 +15,10 @@ router.put('/installment-payments/:paymentId/approve', authenticate, authorize('
 router.put('/installment-payments/:paymentId/reject', authenticate, authorize('cashier', 'registrar', 'superadmin'), cashier.rejectInstallmentPayment);
 router.put('/installment-payments/:paymentId/penalty', authenticate, authorize('cashier', 'superadmin'), cashier.addInstallmentPenalty);
 
+// Penalty Fee Configuration
+router.get('/penalty-fee-config', authenticate, authorize('cashier', 'superadmin', 'admin'), cashier.getPenaltyFeeConfig);
+router.put('/penalty-fee-config', authenticate, authorize('cashier', 'superadmin'), cashier.updatePenaltyFeeConfig);
+
 // Enrollment Review (Cashier reviews fees before Dean)
 router.get('/enrollment-reviews', authenticate, authorize('cashier', 'registrar', 'superadmin', 'admin'), cashier.listEnrollmentsForReview);
 router.put('/enrollment-reviews/:id/update-fees', authenticate, authorize('cashier', 'superadmin'), cashier.updateEnrollmentFees);

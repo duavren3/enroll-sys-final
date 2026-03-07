@@ -192,6 +192,24 @@ class CashierService {
       throw new Error(handleApiError(error));
     }
   }
+
+  async getPenaltyFeeConfig() {
+    try {
+      const res = await api.get('/cashier/penalty-fee-config');
+      return res.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async updatePenaltyFeeConfig(penaltyFee: number) {
+    try {
+      const res = await api.put('/cashier/penalty-fee-config', { penalty_fee: penaltyFee });
+      return res.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
 }
 
 export const cashierService = new CashierService();

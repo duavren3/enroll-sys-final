@@ -243,6 +243,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <DialogTitle>Student Registration</DialogTitle>
             <DialogDescription>Register to request an account (student)</DialogDescription>
           </DialogHeader>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-sm">
+            <p className="font-semibold text-blue-900 mb-2">Important Instructions:</p>
+            <ul className="space-y-1 text-blue-900">
+              <li>• <strong>Remember your Student Number</strong> - This will be your login username</li>
+              <li>• Please wait for approval notification after submitting your registration</li>
+            </ul>
+          </div>
           <form onSubmit={async (e) => {
             e.preventDefault();
             if (!regForm.student_id) return alert('Student ID is required');

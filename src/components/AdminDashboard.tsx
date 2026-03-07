@@ -225,6 +225,8 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [semesters] = useState(['1st', '2nd', '3rd']);
   const [selectedSchoolYearForSemester, setSelectedSchoolYearForSemester] = useState<any>(null);
   const [activeSemestersInSY, setActiveSemestersInSY] = useState<string[]>([]);
+  const [schoolYearSemesters, setSchoolYearSemesters] = useState<any[]>([]);
+  const [activeSemesterConfig, setActiveSemesterConfig] = useState<string | null>(null);
   const [shsStudents, setShsStudents] = useState<any[]>([]);
   const [collegeStudents, setCollegeStudents] = useState<any[]>([]);
   const [shsGrades, setShsGrades] = useState<any[]>([]);
@@ -429,20 +431,22 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       if (activeSection === 'Account Requests') {
         try {
           const accountRequestsData = await adminService.getAllStudents();
-          const accountList = accountRequestsData.data?.map((s: any) => ({
-            ...s,
-            id: s.student_id,
-            studentId: s.id,
-            dbId: s.id,
-            name: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
-            course: s.course || 'N/A',
-            year: s.year_level ? `${s.year_level}${getOrdinalSuffix(s.year_level)}` : 'N/A',
-            section: s.section || 'N/A',
-            studentType: s.student_type || 'New',
-            email: s.email || 'N/A',
-            contactNumber: s.contact_number || 'N/A',
-            status: s.status || 'Pending'
-          })) || [];
+          const accountList = accountRequestsData.data
+            ?.filter((s: any) => s.status !== 'Active')
+            ?.map((s: any) => ({
+              ...s,
+              id: s.student_id,
+              studentId: s.id,
+              dbId: s.id,
+              name: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+              course: s.course || 'N/A',
+              year: s.year_level ? `${s.year_level}${getOrdinalSuffix(s.year_level)}` : 'N/A',
+              section: s.section || 'N/A',
+              studentType: s.student_type || 'New',
+              email: s.email || 'N/A',
+              contactNumber: s.contact_number || 'N/A',
+              status: s.status || 'Pending'
+            })) || [];
           setAccountRequests(accountList);
         } catch (err) {
           console.error('Failed to fetch account requests:', err);
@@ -2544,35 +2548,44 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                       </div>
 
                       {/* Semester Management */}
-                      <div className="mt-4 p-3 bg-slate-50 rounded border border-slate-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium">Semesters</p>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setSelectedSchoolYearForSemester(sy);
-                              // Load saved semesters from localStorage
-                              const semestersData = JSON.parse(localStorage.getItem('schoolYearSemesters') || '{}');
-                              const savedSemesters = semestersData[sy.id] || [];
-                              setActiveSemestersInSY(savedSemesters);
-                            }}
-                          >
-                            Manage
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="mt-4 p-4 bg-slate-50 rounded border border-slate-200">
+                        <div className="mb-4">
+                          <p className="text-sm font-medium mb-3">Semesters</p>
                           {(() => {
-                            const semestersData = JSON.parse(localStorage.getItem('schoolYearSemesters') || '{}');
-                            const savedSemesters = semestersData[sy.id] || [];
-                            return savedSemesters.length > 0 ? (
-                              savedSemesters.map((sem: string) => (
-                                <Badge key={sem} className="bg-blue-100 text-blue-700 border-0">
-                                  {sem} Semester
-                                </Badge>
-                              ))
-                            ) : (
-                              <p className="text-xs text-slate-500">No semesters configured</p>
+                            const semestersData = JSON.parse(localStorage.getItem('activeSemesterConfig') || '{}');
+                            const activeSem = semestersData[sy.id] || '1st';
+                            return (
+                              <div className="space-y-2">
+                                <p className="text-xs text-slate-600 mb-3">
+                                  <Badge className="bg-green-100 text-green-700 border-0">Active Semester: {activeSem} Sem</Badge>
+                                </p>
+                                <div className="space-y-1">
+                                  {['1st', '2nd', '3rd'].map((sem) => (
+                                    <div key={sem} className="flex items-center gap-3 p-2 bg-white rounded border border-slate-200">
+                                      <input
+                                        type="radio"
+                                        name={`semester-${sy.id}`}
+                                        value={sem}
+                                        checked={activeSem === sem}
+                                        onChange={(e) => {
+                                          const data = JSON.parse(localStorage.getItem('activeSemesterConfig') || '{}');
+                                          data[sy.id] = e.target.value;
+                                          localStorage.setItem('activeSemesterConfig', JSON.stringify(data));
+                                          setActiveSemesterConfig(e.target.value);
+                                          fetchDashboardData();
+                                        }}
+                                        className="cursor-pointer"
+                                      />
+                                      <label className="flex-1 cursor-pointer text-sm">
+                                        {sem} Semester
+                                      </label>
+                                      {activeSem === sem && (
+                                        <Badge className="bg-green-100 text-green-700 border-0 text-xs">Active</Badge>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             );
                           })()}
                         </div>
@@ -2876,7 +2889,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                     onClick={() => setActiveSection('School Year')}
                     className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
                   >
-                    School Year
+                    School Year and Semesters
                   </button>
                 </CollapsibleContent>
               </Collapsible>
@@ -2912,7 +2925,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   {activeSection === 'Sections' && 'Sections'}
                   {activeSection === 'SHS Subjects' && 'SHS Subjects'}
                   {activeSection === 'College Subjects' && 'College Subjects'}
-                  {activeSection === 'School Year' && 'School Year'}
+                  {activeSection === 'School Year' && 'School Year and Semesters'}
                 </h1>
                 <p className="text-sm text-slate-600">{(activeSection === 'Manage Faculty' || activeSection === 'Manage Teachers') ? `Welcome back to your ${personPlural.toLowerCase()} administration portal` : 'Welcome back to your administration portal'}</p>
               </div>
@@ -3594,14 +3607,20 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
 
               <div>
                 <Label>Year Level</Label>
-                <Input 
-                  className="mt-2"
-                  type="number"
-                  min="1"
-                  max="4"
-                  value={selectedStudent?.year || ''}
-                  onChange={(e) => setSelectedStudent({...selectedStudent, year: e.target.value})}
-                />
+                <Select 
+                  value={selectedStudent?.year?.toString() || ''}
+                  onValueChange={(value) => setSelectedStudent({...selectedStudent, year: value})}
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Select year level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1st Year</SelectItem>
+                    <SelectItem value="2">2nd Year</SelectItem>
+                    <SelectItem value="3">3rd Year</SelectItem>
+                    <SelectItem value="4">4th Year</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
