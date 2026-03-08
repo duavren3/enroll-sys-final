@@ -1826,37 +1826,91 @@ export default function DeanDashboard({ onLogout }: DeanDashboardProps) {
     );
   };
 
-  const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard },
-    { name: 'Teacher Management', icon: Users },
-    { name: 'Subjects', icon: BookOpen },
-    { name: 'Curriculum', icon: FileText },
-    { name: 'Approval Requests', icon: Award },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl mb-1">Dean Dashboard</h1>
-            <p className="text-sm text-slate-600">Academic management and curriculum oversight</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-xl shadow-md">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white">
-                <GraduationCap className="h-5 w-5" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <div className="w-72 bg-white border-r border-slate-200 shadow-xl flex flex-col">
+          <div className="p-6 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                <GraduationCap className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm text-slate-900">Dean Roberto Santos</p>
-                <p className="text-xs text-slate-500">Academic Affairs</p>
+                <h3 className="text-slate-900">IC Northgate</h3>
+                <p className="text-sm text-slate-500">Dean Portal</p>
               </div>
             </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-1">
+            <button
+              onClick={() => setActiveSection('Dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Dashboard' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              Dashboard
+            </button>
+            
+            <button
+              onClick={() => setActiveSection('Teacher Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Teacher Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Users className="h-5 w-5" />
+              Teacher Management
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Subjects')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Subjects' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <BookOpen className="h-5 w-5" />
+              Subjects
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Curriculum')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Curriculum' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <FileText className="h-5 w-5" />
+              Curriculum
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Approval Requests')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Approval Requests' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Award className="h-5 w-5" />
+              Approval Requests
+            </button>
+          </nav>
+
+          <div className="p-4 border-t border-slate-200">
             <Button 
-              onClick={onLogout}
               variant="outline" 
-              className="gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              className="w-full justify-center gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              onClick={onLogout}
             >
               <LogOut className="h-4 w-4" />
               Logout
@@ -1865,37 +1919,38 @@ export default function DeanDashboard({ onLogout }: DeanDashboardProps) {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-12 gap-6">
-          {/* Sidebar */}
-          <div className="col-span-3">
-            <Card className="border-0 shadow-lg p-4 sticky top-6">
-              <ScrollArea className="h-[calc(100vh-200px)]">
-                <div className="space-y-2">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Button
-                        key={item.name}
-                        variant={activeSection === item.name ? 'default' : 'ghost'}
-                        className={`w-full justify-start gap-3 ${
-                          activeSection === item.name
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                            : 'hover:bg-slate-100'
-                        }`}
-                        onClick={() => setActiveSection(item.name)}
-                      >
-                        <Icon className="h-5 w-5" />
-                        {item.name}
-                      </Button>
-                    );
-                  })}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl mb-1">
+                  {activeSection === 'Dashboard' && 'Dean Dashboard'}
+                  {activeSection === 'Teacher Management' && 'Teacher Management'}
+                  {activeSection === 'Subjects' && 'Subjects'}
+                  {activeSection === 'Curriculum' && 'Curriculum'}
+                  {activeSection === 'Approval Requests' && 'Approval Requests'}
+                </h1>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Academic management and curriculum oversight'}
+                  {activeSection === 'Teacher Management' && 'Manage faculty assignments and information'}
+                  {activeSection === 'Subjects' && 'Manage academic subjects and curriculum'}
+                  {activeSection === 'Curriculum' && 'Oversee academic programs and curriculum'}
+                  {activeSection === 'Approval Requests' && 'Review and approve enrollments, curriculum changes, and grades'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">Dean User</p>
+                  <p className="text-xs text-slate-500">dean@icnorthgate.edu</p>
                 </div>
-              </ScrollArea>
-            </Card>
-          </div>
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                  <GraduationCap className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            </div>
 
-          {/* Content Area */}
-          <div className="col-span-9">
+            {/* Dynamic Content */}
             {activeSection === 'Dashboard' && renderDashboardContent()}
             {activeSection === 'Teacher Management' && renderFacultyManagementContent()}
             {activeSection === 'Subjects' && <SubjectsManagement />}

@@ -2816,7 +2816,15 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                   {activeSection === 'Grades' && 'Grades'}
                   {activeSection === 'My Profile' && 'My Profile'}
                 </h1>
-                <p className="text-sm text-slate-600">Welcome back to your learning portal</p>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Welcome back to your learning portal'}
+                  {activeSection === 'Enroll' && 'Manage your enrollment and course registration'}
+                  {activeSection === 'Subjects' && 'View and manage your enrolled subjects'}
+                  {activeSection === 'My Schedule' && 'Check your class schedule and room assignments'}
+                  {activeSection === 'Tuition and Fees' && 'Track your tuition payments and balance'}
+                  {activeSection === 'Grades' && 'Review your academic grades and performance'}
+                  {activeSection === 'My Profile' && 'Update your personal information and account settings'}
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <button 

@@ -2926,8 +2926,28 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   {activeSection === 'SHS Subjects' && 'SHS Subjects'}
                   {activeSection === 'College Subjects' && 'College Subjects'}
                   {activeSection === 'School Year' && 'School Year and Semesters'}
+                  {activeSection === 'Account Requests' && 'Account Requests'}
+                  {activeSection === 'Transactions' && 'Transactions'}
+                  {activeSection === 'Installment Payments' && 'Installment Payments'}
+                  {activeSection === 'Manage Forms' && 'Digital Forms Library'}
                 </h1>
-                <p className="text-sm text-slate-600">{(activeSection === 'Manage Faculty' || activeSection === 'Manage Teachers') ? `Welcome back to your ${personPlural.toLowerCase()} administration portal` : 'Welcome back to your administration portal'}</p>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Welcome back to your administration portal'}
+                  {activeSection === 'Enrollment Request' && 'Review and manage all student enrollment submissions'}
+                  {activeSection === 'Account Requests' && 'Approve or reject pending student account requests'}
+                  {activeSection === 'Manage Students' && 'Add, update, and manage student records'}
+                  {activeSection === 'Manage Teachers' && 'Manage teacher/faculty accounts and information'}
+                  {activeSection === 'Manage Faculty' && 'Manage faculty accounts and information'}
+                  {activeSection === 'SHS Grades' && 'View and edit SHS student grades'}
+                  {activeSection === 'College Grades' && 'View and edit college student grades'}
+                  {activeSection === 'Sections' && 'Create and manage class sections'}
+                  {activeSection === 'SHS Subjects' && 'Manage SHS curriculum subjects'}
+                  {activeSection === 'College Subjects' && 'Manage college curriculum subjects'}
+                  {activeSection === 'School Year' && 'Configure school years and active semesters'}
+                  {activeSection === 'Transactions' && 'Monitor all enrollment and payment transactions'}
+                  {activeSection === 'Installment Payments' && 'Track installment payment submissions and verification'}
+                  {activeSection === 'Manage Forms' && 'Upload and manage downloadable forms for students'}
+                </p>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">

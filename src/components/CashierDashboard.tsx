@@ -1698,28 +1698,102 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl mb-1">Cashier Dashboard</h1>
-            <p className="text-sm text-slate-600">Payment processing and transaction management</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-xl shadow-md">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white">
-                <PesoIcon className="h-5 w-5" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <div className="w-72 bg-white border-r border-slate-200 shadow-xl flex flex-col">
+          <div className="p-6 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                <PesoIcon className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm font-medium text-slate-900">Cashier</p>
-                <p className="text-xs text-slate-500">Payment Processing</p>
+                <h3 className="text-slate-900">IC Northgate</h3>
+                <p className="text-sm text-slate-500">Cashier Portal</p>
               </div>
             </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-1">
+            <button
+              onClick={() => setActiveSection('Dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Dashboard' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              Dashboard
+            </button>
+            
+            <button
+              onClick={() => setActiveSection('Enrollment Review')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Enrollment Review' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <ClipboardList className="h-5 w-5" />
+              Enrollment Review
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Tuition Assessments')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Tuition Assessments' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <FileText className="h-5 w-5" />
+              Tuition Assessments
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Pending Verifications')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Pending Verifications' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Clock className="h-5 w-5" />
+              Pending Verifications
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Fee Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Fee Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Edit className="h-5 w-5" />
+              Fee Management
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Transaction Logs')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Transaction Logs' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <FileText className="h-5 w-5" />
+              Transaction Logs
+            </button>
+          </nav>
+
+          <div className="p-4 border-t border-slate-200">
             <Button 
-              onClick={onLogout}
               variant="outline" 
-              className="gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              className="w-full justify-center gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              onClick={onLogout}
             >
               <LogOut className="h-4 w-4" />
               Logout
@@ -1727,47 +1801,50 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
           </div>
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center gap-2 text-red-700">
-              <AlertCircle className="h-5 w-5" />
-              <p>{error}</p>
-            </div>
-          </div>
-        )}
-
         {/* Main Content */}
-        <div className="grid grid-cols-12 gap-6">
-          {/* Sidebar */}
-          <div className="col-span-3">
-            <Card className="border-0 shadow-lg p-4 sticky top-6">
-              <ScrollArea className="h-[calc(100vh-200px)]">
-                <div className="space-y-2">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Button
-                        key={item.name}
-                        variant={activeSection === item.name ? 'default' : 'ghost'}
-                        className={`w-full justify-start gap-3 ${
-                          activeSection === item.name
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                            : 'hover:bg-slate-100'
-                        }`}
-                        onClick={() => setActiveSection(item.name)}
-                      >
-                        <Icon className="h-5 w-5" />
-                        {item.name}
-                      </Button>
-                    );
-                  })}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl mb-1">
+                  {activeSection === 'Dashboard' && 'Cashier Dashboard'}
+                  {activeSection === 'Enrollment Review' && 'Enrollment Review'}
+                  {activeSection === 'Tuition Assessments' && 'Tuition Assessments'}
+                  {activeSection === 'Pending Verifications' && 'Payment Verifications'}
+                  {activeSection === 'Fee Management' && 'Fee Management'}
+                  {activeSection === 'Transaction Logs' && 'Transaction Logs'}
+                </h1>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Payment processing and transaction management'}
+                  {activeSection === 'Enrollment Review' && 'Review enrollments for fee verification'}
+                  {activeSection === 'Tuition Assessments' && 'View and manage tuition assessments'}
+                  {activeSection === 'Pending Verifications' && 'Verify and process pending student payments'}
+                  {activeSection === 'Fee Management' && 'Configure and manage course fees'}
+                  {activeSection === 'Transaction Logs' && 'View all financial transactions and history'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">Cashier User</p>
+                  <p className="text-xs text-slate-500">cashier@icnorthgate.edu</p>
                 </div>
-              </ScrollArea>
-            </Card>
-          </div>
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg">
+                  <PesoIcon className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            </div>
 
-          {/* Content Area */}
-          <div className="col-span-9">
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-5 w-5" />
+                  <p>{error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Content */}
             {activeSection === 'Dashboard' && renderDashboardContent()}
             {activeSection === 'Enrollment Review' && renderEnrollmentReviewContent()}
             {activeSection === 'Tuition Assessments' && renderTuitionAssessmentsContent()}
@@ -1775,7 +1852,6 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
             {activeSection === 'Fee Management' && renderFeeManagementContent()}
             {activeSection === 'Transaction Logs' && renderTransactionsContent()}
           </div>
-        </div>
       </div>
 
       {/* Transaction Details Dialog */}
@@ -1897,6 +1973,7 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
           )}
         </DialogContent>
       </Dialog>
+    </div>
     </div>
   );
 }

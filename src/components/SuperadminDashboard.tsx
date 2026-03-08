@@ -348,7 +348,7 @@ export default function SuperadminDashboard({ onLogout }: SuperadminDashboardPro
 
           {/* System Info */}
           <Card className="border-0 shadow-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4">
               <h3 className="text-white">System Information</h3>
             </div>
             <div className="p-6">
@@ -686,35 +686,67 @@ export default function SuperadminDashboard({ onLogout }: SuperadminDashboardPro
     </div>
   );
 
-  const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard },
-    { name: 'User Management', icon: UserCog },
-    { name: 'System Settings', icon: Settings },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl mb-1">Superadmin Dashboard</h1>
-            <p className="text-sm text-slate-600">Full system control and management</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-xl shadow-md">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white">
-                <Shield className="h-5 w-5" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <div className="w-72 bg-white border-r border-slate-200 shadow-xl flex flex-col">
+          <div className="p-6 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                <Shield className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm text-slate-900">Superadmin</p>
-                <p className="text-xs text-slate-500">Full Access</p>
+                <h3 className="text-slate-900">IC Northgate</h3>
+                <p className="text-sm text-slate-500">Superadmin Portal</p>
               </div>
             </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-1">
+            <button
+              onClick={() => setActiveSection('Dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Dashboard' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              Dashboard
+            </button>
+            
+            <button
+              onClick={() => setActiveSection('User Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'User Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <UserCog className="h-5 w-5" />
+              User Management
+            </button>
+
+            <button
+              onClick={() => setActiveSection('System Settings')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'System Settings' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Settings className="h-5 w-5" />
+              System Settings
+            </button>
+          </nav>
+
+          <div className="p-4 border-t border-slate-200">
             <Button 
-              onClick={onLogout}
               variant="outline" 
-              className="gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              className="w-full justify-center gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              onClick={onLogout}
             >
               <LogOut className="h-4 w-4" />
               Logout
@@ -723,37 +755,34 @@ export default function SuperadminDashboard({ onLogout }: SuperadminDashboardPro
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-12 gap-6">
-          {/* Sidebar */}
-          <div className="col-span-3">
-            <Card className="border-0 shadow-lg p-4 sticky top-6">
-              <ScrollArea className="h-[calc(100vh-200px)]">
-                <div className="space-y-2">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Button
-                        key={item.name}
-                        variant={activeSection === item.name ? 'default' : 'ghost'}
-                        className={`w-full justify-start gap-3 ${
-                          activeSection === item.name
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                            : 'hover:bg-slate-100'
-                        }`}
-                        onClick={() => setActiveSection(item.name)}
-                      >
-                        <Icon className="h-5 w-5" />
-                        {item.name}
-                      </Button>
-                    );
-                  })}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl mb-1">
+                  {activeSection === 'Dashboard' && 'Superadmin Dashboard'}
+                  {activeSection === 'User Management' && 'User Management'}
+                  {activeSection === 'System Settings' && 'System Settings'}
+                </h1>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Full system control and management'}
+                  {activeSection === 'User Management' && 'Create and manage system user accounts'}
+                  {activeSection === 'System Settings' && 'Configure system settings and database maintenance'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">Superadmin User</p>
+                  <p className="text-xs text-slate-500">superadmin@icnorthgate.edu</p>
                 </div>
-              </ScrollArea>
-            </Card>
-          </div>
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                  <User className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            </div>
 
-          {/* Content Area */}
-          <div className="col-span-9">
+            {/* Dynamic Content */}
             {activeSection === 'Dashboard' && renderDashboardContent()}
             {activeSection === 'User Management' && renderUserManagementContent()}
             {activeSection === 'System Settings' && renderSystemSettingsContent()}

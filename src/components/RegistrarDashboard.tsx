@@ -1169,38 +1169,103 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
     );
   };
 
-  const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard },
-    { name: 'Pending Enrollments', icon: FileText },
-    { name: 'Student Records', icon: Users },
-    { name: 'Grades Management', icon: ClipboardCheck },
-    { name: 'COR Management', icon: Award },
-    { name: 'Clearances', icon: CheckCircle },
-  ];
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl mb-1">Registrar Dashboard</h1>
-            <p className="text-sm text-slate-600">Student records and academic documentation</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-xl shadow-md">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center text-white">
-                <FileText className="h-5 w-5" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <div className="w-72 bg-white border-r border-slate-200 shadow-xl flex flex-col">
+          <div className="p-6 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                <FileText className="h-6 w-6 text-white" />
               </div>
               <div>
-                <p className="text-sm text-slate-900">Registrar Ana Garcia</p>
-                <p className="text-xs text-slate-500">Records Management</p>
+                <h3 className="text-slate-900">IC Northgate</h3>
+                <p className="text-sm text-slate-500">Registrar Portal</p>
               </div>
             </div>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-1">
+            <button
+              onClick={() => setActiveSection('Dashboard')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Dashboard' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              Dashboard
+            </button>
+            
+            <button
+              onClick={() => setActiveSection('Pending Enrollments')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Pending Enrollments' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <FileText className="h-5 w-5" />
+              Pending Enrollments
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Student Records')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Student Records' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Users className="h-5 w-5" />
+              Student Records
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Grades Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Grades Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <ClipboardCheck className="h-5 w-5" />
+              Grades Management
+            </button>
+
+            <button
+              onClick={() => setActiveSection('COR Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'COR Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Award className="h-5 w-5" />
+              COR Management
+            </button>
+
+            <button
+              onClick={() => setActiveSection('Clearances')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Clearances' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <CheckCircle className="h-5 w-5" />
+              Clearances
+            </button>
+          </nav>
+
+          <div className="p-4 border-t border-slate-200">
             <Button 
-              onClick={onLogout}
               variant="outline" 
-              className="gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              className="w-full justify-center gap-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              onClick={onLogout}
             >
               <LogOut className="h-4 w-4" />
               Logout
@@ -1209,37 +1274,40 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-12 gap-6">
-          {/* Sidebar */}
-          <div className="col-span-3">
-            <Card className="border-0 shadow-lg p-4 sticky top-6">
-              <ScrollArea className="h-[calc(100vh-200px)]">
-                <div className="space-y-2">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Button
-                        key={item.name}
-                        variant={activeSection === item.name ? 'default' : 'ghost'}
-                        className={`w-full justify-start gap-3 ${
-                          activeSection === item.name
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
-                            : 'hover:bg-slate-100'
-                        }`}
-                        onClick={() => setActiveSection(item.name)}
-                      >
-                        <Icon className="h-5 w-5" />
-                        {item.name}
-                      </Button>
-                    );
-                  })}
+        <div className="flex-1 overflow-auto">
+          <div className="p-8">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h1 className="text-2xl mb-1">
+                  {activeSection === 'Dashboard' && 'Registrar Dashboard'}
+                  {activeSection === 'Pending Enrollments' && 'Pending Enrollments'}
+                  {activeSection === 'Student Records' && 'Student Records'}
+                  {activeSection === 'Grades Management' && 'Grades Management'}
+                  {activeSection === 'COR Management' && 'COR Management'}
+                  {activeSection === 'Clearances' && 'Clearances'}
+                </h1>
+                <p className="text-sm text-slate-600">
+                  {activeSection === 'Dashboard' && 'Student records and academic documentation'}
+                  {activeSection === 'Pending Enrollments' && 'Review and assess pending student enrollments'}
+                  {activeSection === 'Student Records' && 'View and manage student documentation requirements'}
+                  {activeSection === 'Grades Management' && 'Track faculty grade submissions and finalize grades'}
+                  {activeSection === 'COR Management' && 'Generate and manage Certification of Registration'}
+                  {activeSection === 'Clearances' && 'Resolve student clearance issues and requirements'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm text-slate-600">Registrar User</p>
+                  <p className="text-xs text-slate-500">registrar@icnorthgate.edu</p>
                 </div>
-              </ScrollArea>
-            </Card>
-          </div>
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
+                  <FileText className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            </div>
 
-          {/* Content Area */}
-          <div className="col-span-9">
+            {/* Dynamic Content */}
             {activeSection === 'Dashboard' && renderDashboardContent()}
             {activeSection === 'Student Records' && renderStudentRecordsContent()}
             {activeSection === 'Grades Management' && renderGradesManagementContent()}
