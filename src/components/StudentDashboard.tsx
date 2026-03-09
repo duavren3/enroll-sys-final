@@ -82,6 +82,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, File>>({});
+  const [scholarshipSupportingDocs, setScholarshipSupportingDocs] = useState<File[]>([]);
   const [schoolYear, setSchoolYear] = useState('2024-2025');
   const [semester, setSemester] = useState('1st Semester');
   const [installmentPaymentOpen, setInstallmentPaymentOpen] = useState(false);
@@ -113,6 +114,10 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
   const [penaltyFeeConfig, setPenaltyFeeConfig] = useState<number>(0);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+  const [hasDownPayment, setHasDownPayment] = useState<boolean>(false);
+  const [enrollSubjectsSelection, setEnrollSubjectsSelection] = useState<number[]>([]);
+  const [enrollAvailableSubjects, setEnrollAvailableSubjects] = useState<any[]>([]);
+  const [loadingEnrollSubjects, setLoadingEnrollSubjects] = useState(false);
 
   const SCHOLAR_TYPES = [
     'None',
@@ -154,6 +159,38 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
       scholar: 'scholar'
     };
     return typeMap[raw] || raw.toLowerCase();
+  };
+
+  // Determine if student needs manual subject selection (Transferee or Irregular classification)
+  const requiresSubjectSelection = (): boolean => {
+    const type = resolvedStudentType || studentType;
+    const classification = studentProfile?.student_classification;
+    return type === 'transferee' || classification === 'Irregular';
+  };
+
+  // Load available subjects for the student's course filtered by year level (for manual selection)
+  const loadEnrollmentSubjects = async () => {
+    if (!studentProfile?.course) return;
+    try {
+      setLoadingEnrollSubjects(true);
+      // Fetch subjects for the student's course filtered by their year level
+      const resp = await subjectService.getSubjectsByCourse(studentProfile.course, studentProfile.year_level);
+      const subjects = resp?.data || resp || [];
+      setEnrollAvailableSubjects(subjects);
+    } catch (err) {
+      console.error('Failed to load subjects for selection:', err);
+      setEnrollAvailableSubjects([]);
+    } finally {
+      setLoadingEnrollSubjects(false);
+    }
+  };
+
+  const toggleEnrollSubject = (subjectId: number) => {
+    setEnrollSubjectsSelection((prev) =>
+      prev.includes(subjectId)
+        ? prev.filter((id) => id !== subjectId)
+        : [...prev, subjectId]
+    );
   };
 
   const getDocDownloadUrl = (docType: string) => `/uploads/documents/${docType}.pdf`;
@@ -260,6 +297,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
     const calculateRemainingBalance = async () => {
       if (!currentEnrollment?.id) {
         setInstallmentSchedule([]);
+        setHasDownPayment(false);
         return;
       }
       try {
@@ -273,6 +311,9 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           setPenaltyFeeConfig(configuredPenaltyFee);
           // Get the down payment
           const downPayment = payments.find((p: any) => p.period === 'Down Payment');
+          // Track whether this is a partial/installment payment enrollment
+          setHasDownPayment(!!downPayment);
+          // Note: hasFullPaymentTransaction is managed separately via enrollment payment history
           
           if (downPayment && currentEnrollment?.total_amount) {
             const totalAmount = currentEnrollment.total_amount;
@@ -306,14 +347,18 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               }
             });
             
-            setInstallmentSchedule(remainingPeriods);
+            // Filter to only include periods that still need payment (exclude Approved)
+            const unpaidPeriods = remainingPeriods.filter((p: any) => p.status !== 'Approved');
+            setInstallmentSchedule(unpaidPeriods);
           } else {
             setInstallmentSchedule([]);
+            setHasDownPayment(false);
           }
         }
       } catch (err) {
         console.error('Failed to load installment schedule', err);
         setInstallmentSchedule([]);
+        setHasDownPayment(false);
       } finally {
         if (mounted) setLoadingSchedule(false);
       }
@@ -434,17 +479,58 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
       }
 
       // Preload assessment and payments using student_id when available
+      // Each call is independent so one failure doesn't break the others
       if (student?.student_id) {
+        const studentIdStr = student.student_id.toString();
+
+        // Fetch assessment independently
         try {
-          const assessmentResp = await paymentsService.getAssessment(student.student_id.toString());
+          const assessmentResp = await paymentsService.getAssessment(studentIdStr);
           assessmentPayload = assessmentResp?.data || assessmentResp;
-          const approvedResp = await paymentsService.getApprovedPayments(student.student_id.toString());
-          paymentsList = approvedResp?.data || approvedResp || [];
           setAssessmentData(assessmentPayload);
-          setPaymentHistory(paymentsList);
-        } catch (innerErr) {
-          console.error('Payment preload failed:', innerErr);
+        } catch (assessErr) {
+          console.error('Assessment fetch failed:', assessErr);
         }
+
+        // Fetch regular payments (from transactions table)
+        let regularPayments: any[] = [];
+        try {
+          const regularResp = await paymentsService.listPayments(studentIdStr);
+          regularPayments = (regularResp?.data || regularResp || []).filter((p: any) => 
+            !p.student_id || p.student_id === student.student_id || p.student_id.toString() === studentIdStr || p.studentId === studentIdStr
+          );
+        } catch (payErr) {
+          console.error('Payment history fetch failed:', payErr);
+        }
+
+        // Fetch approved installment payments independently
+        let approvedPayments: any[] = [];
+        try {
+          const approvedResp = await paymentsService.getApprovedPayments(studentIdStr);
+          approvedPayments = (approvedResp?.data || approvedResp || []).filter((p: any) => 
+            !p.student_id || p.student_id === student.student_id || p.student_id.toString() === studentIdStr
+          );
+        } catch (approvedErr) {
+          console.error('Approved payments fetch failed:', approvedErr);
+        }
+          
+        // Merge payments: combine regular and approved, deduplicating by ID
+        const paymentMap = new Map();
+          
+        regularPayments.forEach((p: any) => {
+          paymentMap.set(p.id, p);
+        });
+          
+        approvedPayments.forEach((p: any) => {
+          if (paymentMap.has(p.id)) {
+            paymentMap.set(p.id, { ...paymentMap.get(p.id), ...p, status: 'Approved' });
+          } else {
+            paymentMap.set(p.id, { ...p, status: 'Approved' });
+          }
+        });
+          
+        paymentsList = Array.from(paymentMap.values());
+        setPaymentHistory(paymentsList);
       }
 
 
@@ -581,27 +667,6 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
       alert('Payment submitted for verification');
     } catch (error: any) {
       alert(error.message || 'Failed to submit payment');
-        // Pull assessment + payments early so tuition and notifications are populated
-        let paymentsList: any[] = [];
-        let assessmentPayload: any = null;
-        if (student?.student_id) {
-          try {
-            const assessmentResp = await paymentsService.getAssessment(student.student_id.toString());
-            assessmentPayload = assessmentResp?.data || assessmentResp;
-            const paymentsResp = await paymentsService.listPayments(student.student_id.toString());
-            paymentsList = paymentsResp?.data || paymentsResp || [];
-            setAssessmentData(assessmentPayload);
-            setPaymentHistory(paymentsList);
-          } catch (innerErr) {
-            console.error('Payment preload failed:', innerErr);
-          }
-        }
-        rebuildNotifications(
-          current?.status || 'none',
-          assessmentPayload,
-          paymentsList,
-          current
-        );
     } finally {
       setLoading(false);
     }
@@ -609,20 +674,30 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
 
   const getRequiredDocuments = (studentType: string): string[] => {
     const requiredDocs: Record<string, string[]> = {
-      'New': ['form137', 'form138', 'birth_certificate', 'moral_certificate'],
-      'Transferee': ['tor', 'certificate_transfer', 'birth_certificate', 'moral_certificate'],
-      'Returning': ['form137', 'birth_certificate'],
-      'Continuing': ['form137'],
+      'New': ['diploma', 'picture_2x2', 'clearance_form'],
+      'Transferee': ['tor', 'certificate_transfer', 'clearance_form'],
+      'Returning': ['form137', 'clearance_form'],
+      'Continuing': ['form137', 'clearance_form'],
       'Scholar': scholarshipType !== 'None' 
-        ? ['form137', 'form138', 'birth_certificate', 'moral_certificate', 'scholarship_application', 'scholarship_supporting']
-        : ['form137', 'form138', 'birth_certificate', 'moral_certificate']
+        ? ['scholarship_application', 'scholarship_supporting', 'clearance_form', 'dtr_form'] 
+        : ['form137', 'form138', 'clearance_form']
     };
     return requiredDocs[studentType] || [];
   };
 
+  const getOptionalDocuments = (studentType: string): string[] => {
+    // Birth certificate and good moral are optional for all student types
+    return ['birth_certificate', 'moral_certificate'];
+  };
+
   const areDocumentsComplete = (studentType: string): boolean => {
     const requiredDocs = getRequiredDocuments(studentType);
-    return requiredDocs.length > 0 && requiredDocs.every(doc => uploadedDocuments[doc]);
+    return requiredDocs.length > 0 && requiredDocs.every(doc => {
+      if (doc === 'scholarship_supporting') {
+        return scholarshipSupportingDocs.length > 0;
+      }
+      return uploadedDocuments[doc];
+    });
   };
 
   const handleSubmitForAssessment = async () => {
@@ -664,6 +739,26 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
         }
       }
 
+      // Upload multiple scholarship supporting documents if any
+      if (scholarshipSupportingDocs.length > 0) {
+        for (const file of scholarshipSupportingDocs) {
+          if (file instanceof File) {
+            await studentService.uploadDocument(file, 'scholarship_supporting', enrollmentId);
+          }
+        }
+      }
+
+      // For Transferee/Irregular students: add their manually selected subjects
+      if (requiresSubjectSelection() && enrollSubjectsSelection.length > 0) {
+        for (const subjectId of enrollSubjectsSelection) {
+          try {
+            await enrollmentService.addSubject(enrollmentId, subjectId);
+          } catch (err) {
+            console.warn(`Failed to add subject ${subjectId}:`, err);
+          }
+        }
+      }
+
       // Submit for assessment
       await enrollmentService.submitForAssessment(enrollmentId);
       
@@ -673,6 +768,9 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
       setUploadedDocuments({});
       setScholarshipType('None');
       setScholarshipLetter(null);
+      setScholarshipSupportingDocs([]);
+      setEnrollSubjectsSelection([]);
+      setEnrollAvailableSubjects([]);
       setActiveSection('Dashboard');
       await fetchStudentData();
     } catch (error: any) {
@@ -794,10 +892,38 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
       setLoadingAssessment(true);
       const id = studentId || studentProfile?.student_id;
       if (!id) return;
+      
+      // Fetch assessment and payments only for the current student
       const assessmentResp = await paymentsService.getAssessment(id.toString());
       const paymentsResp = await paymentsService.listPayments(id.toString());
+      const approvedResp = await paymentsService.getApprovedPayments(id.toString());
+      
       setAssessmentData(assessmentResp?.data || assessmentResp);
-      const history = paymentsResp?.data || paymentsResp || [];
+      
+      // Merge regular and approved payments, removing duplicates
+      // Only include payments for the current student (id)
+      const regularPayments = (paymentsResp?.data || paymentsResp || []).filter((p: any) => !p.student_id || p.student_id === id || p.student_id.toString() === id.toString());
+      const approvedPayments = (approvedResp?.data || approvedResp || []).filter((p: any) => !p.student_id || p.student_id === id || p.student_id.toString() === id.toString());
+      
+      // Combine and deduplicate: prefer approved payments if both exist
+      const paymentMap = new Map();
+      
+      // Add regular payments first
+      regularPayments.forEach((p: any) => {
+        paymentMap.set(p.id, p);
+      });
+      
+      // Add/override with approved payments
+      approvedPayments.forEach((p: any) => {
+        if (paymentMap.has(p.id)) {
+          // Merge approved details into existing payment
+          paymentMap.set(p.id, { ...paymentMap.get(p.id), ...p, status: 'Approved' });
+        } else {
+          paymentMap.set(p.id, { ...p, status: 'Approved' });
+        }
+      });
+      
+      const history = Array.from(paymentMap.values());
       setPaymentHistory(history);
       rebuildNotifications(enrollmentStatus, assessmentResp?.data || assessmentResp, history, currentEnrollment);
       setPaymentsOpen(true);
@@ -818,6 +944,62 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
     // Attempt to download from uploads folder; fallback to alert
     const url = `/uploads/documents/enrollment-form-${id}.pdf`;
     window.open(url, '_blank');
+  };
+
+  const handleDownloadReceipt = (payment: any) => {
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      
+      // If server-generated receipt path is available, download it directly
+      if (payment.receipt_path) {
+        window.open(`${baseUrl}${payment.receipt_path}`, '_blank');
+        return;
+      }
+      
+      // Fallback: generate receipt client-side
+      generateSimpleReceipt(payment);
+    } catch (error) {
+      console.error('Error downloading receipt:', error);
+      // Fallback to client-side generation
+      generateSimpleReceipt(payment);
+    }
+  };
+
+  const generateSimpleReceipt = (payment: any) => {
+    const isApproved = payment.status === 'Approved' || payment.status === 'Completed' || payment.approved_at;
+    const receiptTitle = isApproved ? 'PAYMENT RECEIPT' : 'PAYMENT CONFIRMATION';
+    
+    const receiptContent = `
+      ${receiptTitle}
+      =====================================
+      
+      Student: ${studentProfile?.first_name || ''} ${studentProfile?.last_name || ''}
+      Student ID: ${studentProfile?.student_id || ''}
+      
+      Date: ${new Date(payment.ts || payment.created_at).toLocaleDateString()}
+      Time: ${new Date(payment.ts || payment.created_at).toLocaleTimeString()}
+      
+      Reference: ${payment.reference || payment.reference_number || payment.id || 'N/A'}
+      Method: ${payment.method || payment.payment_method || 'N/A'}
+      
+      Amount: ₱${(payment.amount || payment.amount_paid || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+      
+      Status: ${isApproved ? (payment.status === 'Completed' ? 'Verified' : 'Approved') : payment.status || 'Pending'}
+      
+      ${payment.approved_at ? `Approved Date: ${new Date(payment.approved_at).toLocaleDateString()}` : ''}
+      ${payment.remarks ? `Remarks: ${payment.remarks}` : ''}
+      
+      =====================================
+      ${isApproved ? 'Thank you for your payment!' : 'Payment is pending verification.'}
+    `;
+    
+    const element = document.createElement('a');
+    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(receiptContent));
+    element.setAttribute('download', `${isApproved ? 'Receipt' : 'Confirmation'}_${payment.id || 'Payment'}.txt`);
+    element.style.display = 'none';
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
   };
 
   const handleUpdateProfile = async () => {
@@ -1430,8 +1612,8 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           </Alert>
         )}
 
-        {/* Remaining Installments Section - Show for enrolled students with balance */}
-        {enrollmentStatus === 'Enrolled' && installmentSchedule.length > 0 && (
+        {/* Remaining Installments Section - Show only if there are unpaid installment periods */}
+        {enrollmentStatus === 'Enrolled' && installmentSchedule.length > 0 && hasDownPayment && (
           <Card className="border border-blue-200 bg-blue-50 p-6 shadow-lg">
             <h3 className="text-lg font-semibold text-blue-900 mb-4">Remaining Installment Payments</h3>
             <p className="text-sm text-slate-600 mb-4">You have paid the down payment. Below is your remaining balance to pay:</p>
@@ -1771,10 +1953,28 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           {enrollmentStep === 2 && studentType === 'new' && (
             <div className="space-y-4">
               <h3 className="text-lg mb-4">New Student - Upload Requirements</h3>
-              
+
               <DocumentUpload
-                label="Form 137"
-                description="Upload your Form 137 (Report Card)"
+                label="Diploma"
+                description="Upload your high school diploma or certificate of graduation"
+                docType="diploma"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['diploma']}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="2x2 Picture"
+                description="Upload a 2x2 passport-sized picture"
+                docType="picture_2x2"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['picture_2x2']}
+                acceptedFormats=".jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Form 137/TOR (Optional)"
+                description="Upload your Form 137 (Report Card) or Transcript of Records"
                 docType="form137"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['form137']}
@@ -1782,8 +1982,8 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Form 138"
-                description="Upload your Form 138 (Transcript of Records)"
+                label="Form 138 / Report Card (Optional)"
+                description="Upload your Form 138 or Report Card"
                 docType="form138"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['form138']}
@@ -1791,7 +1991,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Birth Certificate"
+                label="Birth Certificate (Optional)"
                 description="Upload a copy of your Birth Certificate"
                 docType="birth_certificate"
                 onFileSelect={handleDocumentUpload}
@@ -1800,11 +2000,20 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Good Moral Certificate"
+                label="Good Moral Certificate (Optional)"
                 description="Upload your Good Moral Certificate"
                 docType="moral_certificate"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['moral_certificate']}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Clearance Form"
+                description="Upload your Clearance Form from previous school"
+                docType="clearance_form"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['clearance_form']}
                 acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               />
 
@@ -1830,16 +2039,22 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <div className="flex gap-2 mt-6">
                 <Button variant="outline" onClick={() => setEnrollmentStep(1)}>Back</Button>
                 {!areDocumentsComplete('New') && (
-                  <Button variant="secondary" onClick={handleSubmitForAssessment} disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'To Follow'}
+                  <Button variant="secondary" onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }} disabled={submitting}>
+                    {submitting ? 'Submitting...' : requiresSubjectSelection() ? 'To Follow — Proceed to Subject Selection' : 'To Follow'}
                   </Button>
                 )}
                 <Button 
-                  onClick={handleSubmitForAssessment}
+                  onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }}
                   disabled={!areDocumentsComplete('New') || submitting}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Assessment'}
+                  {requiresSubjectSelection() ? 'Proceed to Subject Selection' : (submitting ? 'Submitting...' : 'Submit for Assessment')}
                 </Button>
               </div>
             </div>
@@ -1871,7 +2086,7 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Birth Certificate"
+                label="Birth Certificate (Optional)"
                 description="Upload a copy of your Birth Certificate"
                 docType="birth_certificate"
                 onFileSelect={handleDocumentUpload}
@@ -1881,12 +2096,21 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Good Moral Certificate"
+                label="Good Moral Certificate (Optional)"
                 description="Upload your Good Moral Certificate"
                 docType="moral_certificate"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['moral_certificate']}
                 downloadUrl={getDocDownloadUrl('moral_certificate')}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Clearance Form"
+                description="Upload your Clearance Form from previous school"
+                docType="clearance_form"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['clearance_form']}
                 acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               />
 
@@ -1901,16 +2125,16 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <div className="flex gap-2 mt-6">
                 <Button variant="outline" onClick={() => setEnrollmentStep(1)}>Back</Button>
                 {!areDocumentsComplete('Transferee') && (
-                  <Button variant="secondary" onClick={handleSubmitForAssessment} disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'To Follow'}
+                  <Button variant="secondary" onClick={() => { setEnrollmentStep(3); loadEnrollmentSubjects(); }} disabled={submitting}>
+                    {submitting ? 'Submitting...' : 'To Follow — Proceed to Subject Selection'}
                   </Button>
                 )}
                 <Button 
-                  onClick={handleSubmitForAssessment}
+                  onClick={() => { setEnrollmentStep(3); loadEnrollmentSubjects(); }}
                   disabled={!areDocumentsComplete('Transferee') || submitting}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Assessment'}
+                  Proceed to Subject Selection
                 </Button>
               </div>
             </div>
@@ -1922,8 +2146,8 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <h3 className="text-lg mb-4">Returning Student - Upload Requirements</h3>
               
               <DocumentUpload
-                label="Form 137"
-                description="Upload your Form 137 (Report Card)"
+                label="Form 137 / Transcript of Records"
+                description="Upload your Form 137 (Report Card) or Transcript of Records"
                 docType="form137"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['form137']}
@@ -1932,12 +2156,21 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Birth Certificate"
+                label="Birth Certificate (Optional)"
                 description="Upload your birth certificate"
                 docType="birth_certificate"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['birth_certificate']}
                 downloadUrl={getDocDownloadUrl('birth_certificate')}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Clearance Form"
+                description="Upload your Clearance Form"
+                docType="clearance_form"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['clearance_form']}
                 acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               />
 
@@ -1952,16 +2185,22 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <div className="flex gap-2 mt-6">
                 <Button variant="outline" onClick={() => setEnrollmentStep(1)}>Back</Button>
                 {!areDocumentsComplete('Returning') && (
-                  <Button variant="secondary" onClick={handleSubmitForAssessment} disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'To Follow'}
+                  <Button variant="secondary" onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }} disabled={submitting}>
+                    {submitting ? 'Submitting...' : requiresSubjectSelection() ? 'To Follow — Proceed to Subject Selection' : 'To Follow'}
                   </Button>
                 )}
                 <Button 
-                  onClick={handleSubmitForAssessment}
+                  onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }}
                   disabled={!areDocumentsComplete('Returning') || submitting}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Assessment'}
+                  {requiresSubjectSelection() ? 'Proceed to Subject Selection' : (submitting ? 'Submitting...' : 'Submit for Assessment')}
                 </Button>
               </div>
             </div>
@@ -1970,7 +2209,26 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           {/* Continuing Student */}
           {enrollmentStep === 2 && studentType === 'continuing' && (
             <div className="space-y-4">
-              <h3 className="text-lg mb-4">Continuing Student</h3>
+              <h3 className="text-lg mb-4">Continuing Student - Upload Requirements</h3>
+
+              <DocumentUpload
+                label="Form 137 / Transcript of Records"
+                description="Upload your Form 137 (Report Card) or Transcript of Records"
+                docType="form137"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['form137']}
+                downloadUrl={getDocDownloadUrl('form137')}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Clearance Form"
+                description="Upload your Clearance Form"
+                docType="clearance_form"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['clearance_form']}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
               
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                 <h4 className="mb-2">Previous Term Data</h4>
@@ -1982,14 +2240,33 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                 </div>
               </div>
 
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-6 mb-4">
+                <h4 className="font-medium text-amber-900 mb-2">Submission Options</h4>
+                <div className="space-y-2 text-sm text-amber-800">
+                  <p><strong>To Follow:</strong> Use this button if you have incomplete documents. You can submit your enrollment now and complete the remaining documents later.</p>
+                  <p><strong>Submit for Assessment:</strong> Use this button when you have submitted all required documents. Your enrollment will proceed to the assessment phase.</p>
+                </div>
+              </div>
+
               <div className="flex gap-2 mt-6">
                 <Button variant="outline" onClick={() => setEnrollmentStep(1)}>Back</Button>
+                {!areDocumentsComplete('Continuing') && (
+                  <Button variant="secondary" onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }} disabled={submitting}>
+                    {submitting ? 'Submitting...' : requiresSubjectSelection() ? 'To Follow — Proceed to Subject Selection' : 'To Follow'}
+                  </Button>
+                )}
                 <Button 
-                  onClick={handleSubmitForAssessment}
-                  disabled={submitting}
+                  onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }}
+                  disabled={!areDocumentsComplete('Continuing') || submitting}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Assessment'}
+                  {requiresSubjectSelection() ? 'Proceed to Subject Selection' : (submitting ? 'Submitting...' : 'Submit for Assessment')}
                 </Button>
               </div>
             </div>
@@ -2000,26 +2277,30 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
             <div className="space-y-4">
               <h3 className="text-lg mb-4">Scholar Student - Upload Requirements</h3>
 
-              <DocumentUpload
-                label="Form 137"
-                description="Upload your Form 137 (Report Card)"
-                docType="form137"
-                onFileSelect={handleDocumentUpload}
-                selectedFile={uploadedDocuments['form137']}
-                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              />
+              {scholarshipType === 'None' && (
+                <>
+                  <DocumentUpload
+                    label="Form 137 / Transcript of Records"
+                    description="Upload your Form 137 (Report Card) or Transcript of Records"
+                    docType="form137"
+                    onFileSelect={handleDocumentUpload}
+                    selectedFile={uploadedDocuments['form137']}
+                    acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+
+                  <DocumentUpload
+                    label="Form 138 / Report Card"
+                    description="Upload your Form 138 (Report Card) or Transcript of Records"
+                    docType="form138"
+                    onFileSelect={handleDocumentUpload}
+                    selectedFile={uploadedDocuments['form138']}
+                    acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+                </>
+              )}
 
               <DocumentUpload
-                label="Form 138"
-                description="Upload your Form 138 (Transcript of Records)"
-                docType="form138"
-                onFileSelect={handleDocumentUpload}
-                selectedFile={uploadedDocuments['form138']}
-                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              />
-
-              <DocumentUpload
-                label="Birth Certificate"
+                label="Birth Certificate (Optional)"
                 description="Upload a copy of your Birth Certificate"
                 docType="birth_certificate"
                 onFileSelect={handleDocumentUpload}
@@ -2028,11 +2309,20 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               />
 
               <DocumentUpload
-                label="Good Moral Certificate"
+                label="Good Moral Certificate (Optional)"
                 description="Upload your Good Moral Certificate"
                 docType="moral_certificate"
                 onFileSelect={handleDocumentUpload}
                 selectedFile={uploadedDocuments['moral_certificate']}
+                acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              />
+
+              <DocumentUpload
+                label="Clearance Form"
+                description="Upload your Clearance Form from previous school"
+                docType="clearance_form"
+                onFileSelect={handleDocumentUpload}
+                selectedFile={uploadedDocuments['clearance_form']}
                 acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               />
 
@@ -2048,13 +2338,49 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                     acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                   />
 
+                  <div className="border rounded-lg p-4 bg-slate-50">
+                    <div className="mb-3">
+                      <Label htmlFor="scholarship-docs" className="text-base font-medium">Scholarship Supporting Documents</Label>
+                      <p className="text-sm text-slate-600 mt-1">Upload multiple supporting documents for your scholarship application</p>
+                    </div>
+                    <input
+                      id="scholarship-docs"
+                      type="file"
+                      multiple
+                      onChange={(e) => {
+                        const files = Array.from(e.currentTarget.files || []);
+                        setScholarshipSupportingDocs([...scholarshipSupportingDocs, ...files]);
+                      }}
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                      className="block w-full text-sm text-slate-500 file:mr-2 file:px-3 file:py-2 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    {scholarshipSupportingDocs.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-sm font-medium">Uploaded files ({scholarshipSupportingDocs.length}):</p>
+                        <ul className="space-y-1">
+                          {scholarshipSupportingDocs.map((file, idx) => (
+                            <li key={idx} className="flex items-center justify-between text-sm bg-white p-2 rounded border border-slate-200">
+                              <span className="truncate">{file.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setScholarshipSupportingDocs(scholarshipSupportingDocs.filter((_, i) => i !== idx))}
+                                className="text-red-600 hover:text-red-800 font-medium"
+                              >
+                                Remove
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
                   <DocumentUpload
-                    label="Scholarship Supporting Documents"
-                    description="Upload required supporting documents for scholarship"
-                    docType="scholarship_supporting"
+                    label="DTR (Daily Time Record) Form"
+                    description="Upload your DTR (Daily Time Record) form"
+                    docType="dtr_form"
                     onFileSelect={handleDocumentUpload}
-                    selectedFile={uploadedDocuments['scholarship_supporting']}
-                    downloadUrl={getDocDownloadUrl('scholarship_supporting')}
+                    selectedFile={uploadedDocuments['dtr_form']}
                     acceptedFormats=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                   />
                 </>
@@ -2063,10 +2389,12 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between">
                   <Label>Download Admission Forms</Label>
-                  <Button size="sm" variant="outline" className="gap-2" onClick={() => window.open(getDocDownloadUrl('scholarship_application'), '_blank')}>
-                    <Download className="h-4 w-4" />
-                    Download
-                  </Button>
+                  {scholarshipType !== 'None' && (
+                    <Button size="sm" variant="outline" className="gap-2" onClick={() => window.open(getDocDownloadUrl('scholarship_application'), '_blank')}>
+                      <Download className="h-4 w-4" />
+                      Download
+                    </Button>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-1">Download and fill out the admission forms</p>
               </div>
@@ -2082,20 +2410,134 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
               <div className="flex gap-2 mt-6">
                 <Button variant="outline" onClick={() => setEnrollmentStep(1)}>Back</Button>
                 {!areDocumentsComplete('Scholar') && (
-                  <Button variant="secondary" onClick={handleSubmitForAssessment} disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'To Follow'}
+                  <Button variant="secondary" onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }} disabled={submitting}>
+                    {submitting ? 'Submitting...' : requiresSubjectSelection() ? 'To Follow — Proceed to Subject Selection' : 'To Follow'}
                   </Button>
                 )}
                 <Button 
-                  onClick={handleSubmitForAssessment}
+                  onClick={() => {
+                    if (requiresSubjectSelection()) { setEnrollmentStep(3); loadEnrollmentSubjects(); }
+                    else { handleSubmitForAssessment(); }
+                  }}
                   disabled={!areDocumentsComplete('Scholar') || submitting}
                   className="bg-gradient-to-r from-blue-600 to-indigo-600"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Assessment'}
+                  {requiresSubjectSelection() ? 'Proceed to Subject Selection' : (submitting ? 'Submitting...' : 'Submit for Assessment')}
                 </Button>
               </div>
             </div>
           )}
+        </Card>
+      )}
+
+      {/* Step 3: Subject Selection (Transferee & Irregular Students) */}
+      {enrollmentStep === 3 && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-blue-600" />
+            Step 3: Subject Selection
+          </h3>
+
+          {/* Advising Instructions */}
+          <Alert className="mb-6 border-amber-300 bg-amber-50">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-800 font-semibold">Important: Face-to-Face Advising Required</AlertTitle>
+            <AlertDescription className="text-amber-700">
+              Students must complete the advising of subjects, including any adding or dropping of subjects, through a face-to-face consultation with the Registrar or academic adviser. This process must be completed before proceeding with the online enrollment in the system.
+            </AlertDescription>
+          </Alert>
+
+          <p className="text-sm text-slate-600 mb-4">
+            Select the subjects you have been advised to take this semester. Only select subjects that have been approved during your advising session.
+          </p>
+
+          {loadingEnrollSubjects ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+              <span className="ml-2 text-slate-500">Loading available subjects...</span>
+            </div>
+          ) : enrollAvailableSubjects.length === 0 ? (
+            <div className="text-center py-8">
+              <AlertCircle className="h-10 w-10 text-slate-400 mx-auto mb-2" />
+              <p className="text-slate-500">No subjects found for your course. Please contact the Registrar.</p>
+            </div>
+          ) : (
+            <>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100">
+                    <tr>
+                      <th className="p-3 text-left w-10"></th>
+                      <th className="p-3 text-left">Subject Code</th>
+                      <th className="p-3 text-left">Subject Name</th>
+                      <th className="p-3 text-center">Units</th>
+                      <th className="p-3 text-center">Year Level</th>
+                      <th className="p-3 text-center">Semester</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enrollAvailableSubjects.map((subject: any) => {
+                      const isSelected = enrollSubjectsSelection.includes(subject.id);
+                      return (
+                        <tr
+                          key={subject.id}
+                          className={`border-t cursor-pointer hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-50/60' : ''}`}
+                          onClick={() => toggleEnrollSubject(subject.id)}
+                        >
+                          <td className="p-3 text-center">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleEnrollSubject(subject.id)}
+                            />
+                          </td>
+                          <td className="p-3 font-mono font-medium">{subject.subject_code}</td>
+                          <td className="p-3">{subject.subject_name}</td>
+                          <td className="p-3 text-center">{subject.units}</td>
+                          <td className="p-3 text-center">{subject.year_level || '-'}</td>
+                          <td className="p-3 text-center">{subject.semester || '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary */}
+              <div className="mt-4 flex items-center justify-between bg-slate-50 rounded-lg p-4">
+                <div className="text-sm text-slate-600">
+                  <span className="font-medium text-slate-800">{enrollSubjectsSelection.length}</span> subject(s) selected
+                  {' · '}
+                  <span className="font-medium text-slate-800">
+                    {enrollAvailableSubjects
+                      .filter((s: any) => enrollSubjectsSelection.includes(s.id))
+                      .reduce((sum: number, s: any) => sum + (Number(s.units) || 0), 0)}
+                  </span> total units
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 mt-6">
+            <Button variant="outline" onClick={() => setEnrollmentStep(2)}>Back</Button>
+            <Button
+              onClick={handleSubmitForAssessment}
+              disabled={submitting || enrollSubjectsSelection.length === 0}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                `Submit for Assessment (${enrollSubjectsSelection.length} subjects)`
+              )}
+            </Button>
+          </div>
         </Card>
       )}
       </div>
@@ -2301,22 +2743,72 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
           {paymentHistory.length === 0 ? (
             <p className="text-sm text-slate-500">No payments found</p>
           ) : (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3 text-sm">
               {paymentHistory.map((p: any) => (
-                <div key={p.id} className="flex justify-between border rounded p-2">
-                  <div>
-                    <div className="font-medium">{p.method || p.reference || 'Payment'}</div>
-                    <div className="text-xs text-slate-500">{new Date(p.ts).toLocaleString()}</div>
+                <div key={p.id} className={`border rounded p-3 ${
+                  p.status === 'Approved' || p.status === 'Completed' || p.approved_at 
+                    ? 'bg-green-50 border-green-200' 
+                    : p.status === 'Pending' 
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium">{p.method || p.reference || 'Payment'}</div>
+                        <Badge className={`text-xs ${
+                          p.status === 'Approved' || p.status === 'Completed' || p.approved_at 
+                            ? 'bg-green-100 text-green-800' 
+                            : p.status === 'Pending' 
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-slate-100 text-slate-800'
+                        }`}>
+                          {p.status === 'Approved' || p.approved_at ? 'Approved' : p.status === 'Completed' ? 'Verified' : p.status || 'Pending'}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-slate-600 mt-1">
+                        Submitted: {new Date(p.ts || p.created_at).toLocaleString()}
+                      </div>
+                      {(p.approved_at || p.approved_by) && (
+                        <div className="text-xs text-slate-600">
+                          Approved: {new Date(p.approved_at).toLocaleString()} {p.approved_by ? `by ${p.approved_by}` : ''}
+                        </div>
+                      )}
+                      {p.reference && (
+                        <div className="text-xs text-slate-600">
+                          Ref: {p.reference}
+                        </div>
+                      )}
+                      {p.remarks && (
+                        <div className="text-xs text-slate-700 mt-1">
+                          Remarks: {p.remarks}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold">₱{(p.amount || p.amount_paid || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                    </div>
                   </div>
-                  <div className="font-medium">₱{(p.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                  {/* Always show download receipt button for any payment */}
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="text-blue-600 hover:bg-blue-50 border-blue-200"
+                      onClick={() => handleDownloadReceipt(p)}
+                    >
+                      <Download className="h-3.5 w-3.5 mr-1" />
+                      {p.status === 'Approved' || p.status === 'Completed' || p.approved_at ? 'Download Receipt' : 'Download Confirmation'}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </Card>
 
-        {/* Remaining Installments Section */}
-        {enrollmentStatus === 'Enrolled' && installmentSchedule.length > 0 && (
+        {/* Remaining Installments Section - Show only if there are unpaid installment periods */}
+        {enrollmentStatus === 'Enrolled' && installmentSchedule.length > 0 && hasDownPayment && (
           <Card className="border border-blue-200 bg-blue-50 p-6 shadow-lg mt-6">
             <h3 className="text-lg font-semibold text-blue-900 mb-4">Remaining Installment Payments</h3>
             <p className="text-sm text-slate-600 mb-4">You have paid the down payment. Below is your remaining balance to pay:</p>
@@ -2840,6 +3332,11 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                 <div className="text-right">
                   <p className="text-xs text-slate-600">Student ID: {studentProfile?.student_id || 'N/A'}</p>
                   <p className="text-xs text-slate-500">{(studentProfile?.course ? `${studentProfile.course} - ` : '') + (studentProfile?.year_level ? `${studentProfile.year_level}${getOrdinalSuffix(studentProfile.year_level)} Year` : '')}{studentProfile?.section ? ` • Section ${studentProfile.section}` : ''}</p>
+                  {studentProfile?.student_classification && (
+                    <Badge className={studentProfile.student_classification === 'Irregular' ? 'bg-amber-100 text-amber-700 border-0 mt-1' : 'bg-blue-100 text-blue-700 border-0 mt-1'}>
+                      {studentProfile.student_classification}
+                    </Badge>
+                  )}
                 </div>
                 <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg">
                   <User className="h-5 w-5 text-white" />
@@ -2943,12 +3440,43 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                     ) : (
                       <div className="mt-2 space-y-2 text-sm">
                         {paymentHistory.map((p: any) => (
-                          <div key={p.id} className="flex justify-between border rounded p-2">
-                            <div>
-                              <div className="font-medium">{p.method || p.reference || 'Payment'}</div>
-                              <div className="text-xs text-slate-500">{new Date(p.ts).toLocaleString()}</div>
+                          <div key={p.id} className={`border rounded p-3 ${
+                            p.status === 'Approved' || p.status === 'Completed' || p.approved_at 
+                              ? 'bg-green-50 border-green-200' 
+                              : 'bg-yellow-50 border-yellow-200'
+                          }`}>
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="font-medium">{p.method || p.reference || 'Payment'}</div>
+                                <div className="text-xs text-slate-500">{new Date(p.ts || p.created_at).toLocaleString()}</div>
+                                {p.approved_by && (
+                                  <div className="text-xs text-slate-500">Approved by: {p.approved_by}</div>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <div className="font-medium">₱{(p.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                                <Badge className={`text-xs ${
+                                  p.status === 'Completed' || p.status === 'Approved' || p.approved_at
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-yellow-100 text-yellow-800'
+                                }`}>
+                                  {p.status === 'Completed' ? 'Verified' : p.status || 'Pending'}
+                                </Badge>
+                              </div>
                             </div>
-                            <div className="font-medium">₱{(p.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+                            {(p.receipt_path || true) && (
+                              <div className="mt-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="text-blue-600 hover:bg-blue-50 border-blue-200 text-xs"
+                                  onClick={() => handleDownloadReceipt(p)}
+                                >
+                                  <Download className="h-3 w-3 mr-1" />
+                                  {p.status === 'Completed' || p.status === 'Approved' || p.approved_at ? 'Download Receipt' : 'Download Confirmation'}
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -3066,6 +3594,14 @@ export default function StudentDashboard({ onLogout }: StudentDashboardProps) {
                         <div>
                           <p className="text-xs text-slate-500 font-semibold uppercase">Section</p>
                           <p className="text-sm font-semibold text-slate-900">{studentProfile.section}</p>
+                        </div>
+                      )}
+                      {studentProfile?.student_classification && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-semibold uppercase">Classification</p>
+                          <Badge className={studentProfile.student_classification === 'Irregular' ? 'bg-amber-100 text-amber-700 border-0' : 'bg-blue-100 text-blue-700 border-0'}>
+                            {studentProfile.student_classification}
+                          </Badge>
                         </div>
                       )}
                     </div>

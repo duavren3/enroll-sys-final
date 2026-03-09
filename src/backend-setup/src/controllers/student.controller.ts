@@ -334,3 +334,24 @@ export const getDocumentByPath = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+export const getEnrollmentDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    const { enrollmentId } = req.params;
+
+    const documents = await query(
+      `SELECT id, student_id, enrollment_id, document_type, file_name, file_path, file_size, upload_date, status 
+       FROM documents 
+       WHERE enrollment_id = ? 
+       ORDER BY document_type ASC`,
+      [enrollmentId]
+    );
+
+    res.json({
+      success: true,
+      data: documents
+    });
+  } catch (error) {
+    console.error('Get enrollment documents error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};

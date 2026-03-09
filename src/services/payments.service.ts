@@ -20,4 +20,14 @@ export const addPayment = async (studentId: string, payload: any) => {
   return res.data;
 };
 
-export default { getAssessment, listPayments, getApprovedPayments, addPayment };
+export const downloadReceipt = async (paymentId: number | string) => {
+  const res = await api.get(`/payments/receipt/${paymentId}`, { responseType: 'blob' });
+  return res.data;
+};
+
+export const generateReceipt = async (paymentId: number | string) => {
+  const res = await api.post(`/payments/receipt/generate/${paymentId}`);
+  return res.data;
+};
+
+export default { getAssessment, listPayments, getApprovedPayments, addPayment, downloadReceipt, generateReceipt };

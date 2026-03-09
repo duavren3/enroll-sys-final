@@ -32,13 +32,15 @@ export const listPendingTransactions = async (req: AuthRequest, res: Response) =
        FROM transactions t
        JOIN enrollments e ON t.enrollment_id = e.id
        JOIN students s ON e.student_id = s.id
-       LEFT JOIN documents d ON d.enrollment_id = e.id AND d.document_type = 'payment_receipt'
+       LEFT JOIN documents d ON d.id = (
+         SELECT d2.id FROM documents d2 
+         WHERE d2.enrollment_id = e.id AND d2.document_type = 'payment_receipt' 
+         ORDER BY d2.upload_date DESC LIMIT 1
+       )
        WHERE 1=1
        AND NOT EXISTS (
          SELECT 1 FROM installment_payments ip 
-         WHERE ip.enrollment_id = t.enrollment_id 
-         AND ip.student_id = e.student_id 
-         AND ip.status = 'Pending'
+         WHERE ip.enrollment_id = t.enrollment_id
        )`;
     const params: any[] = [];
 
@@ -155,6 +157,16 @@ export const processTransaction = async (req: AuthRequest, res: Response) => {
 
         fs.writeFileSync(filePath, content.join('\n'), 'utf-8');
         const stats = fs.statSync(filePath);
+
+        // Save receipt path back to the transaction record
+        try {
+          await run(
+            `UPDATE transactions SET receipt_path = ?, updated_at = datetime('now') WHERE id = ?`,
+            [fileUrl, id]
+          );
+        } catch (updateErr) {
+          console.warn('Failed to update transaction receipt_path:', updateErr);
+        }
 
         // Insert document record
         try {
@@ -401,13 +413,66 @@ export const approveInstallmentPayment = async (req: AuthRequest, res: Response)
       );
     }
 
-    // Update enrollment status to Enrolled for all approved installment payments
-    await run(
-      `UPDATE enrollments 
-       SET status = 'Enrolled', approved_by = ?, approved_at = datetime('now'), updated_at = datetime('now')
-       WHERE id = ?`,
-      [userId, payment.enrollment_id]
+    // Check if there are any remaining unpaid installment periods
+    const unpaidPayments = await query(
+      `SELECT COUNT(*) as count FROM installment_payments 
+       WHERE enrollment_id = ? AND status NOT IN ('Approved', 'Completed') AND period NOT LIKE '%Late Penalty Fee%'`,
+      [payment.enrollment_id]
     );
+    const hasUnpaidPeriods = unpaidPayments && unpaidPayments[0] ? unpaidPayments[0].count > 0 : false;
+
+    // Only move to 'Enrolled' if all installments are paid; otherwise keep in 'For Payment'
+    if (!hasUnpaidPeriods) {
+      await run(
+        `UPDATE enrollments 
+         SET status = 'Enrolled', approved_by = ?, approved_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = ?`,
+        [userId, payment.enrollment_id]
+      );
+    } else {
+      // Keep in 'For Payment' status if more installments remain
+      await run(
+        `UPDATE enrollments 
+         SET status = 'For Payment', updated_at = datetime('now')
+         WHERE id = ?`,
+        [payment.enrollment_id]
+      );
+    }
+
+    // Generate official receipt for the installment payment
+    try {
+      const studentRows = await query(
+        `SELECT s.student_id as student_code, s.first_name, s.last_name FROM students s WHERE s.id = ?`,
+        [payment.student_id]
+      );
+      const studentInfo = studentRows && studentRows[0] ? studentRows[0] : null;
+      const documentsDir = path.join(__dirname, '..', '..', 'uploads', 'documents');
+      fs.mkdirSync(documentsDir, { recursive: true });
+      const fileName = `official_receipt_installment_${paymentId}.txt`;
+      const receiptFilePath = path.join(documentsDir, fileName);
+      const fileUrl = `/uploads/documents/${encodeURIComponent(fileName)}`;
+      const content = [] as string[];
+      content.push('OFFICIAL RECEIPT - INSTALLMENT PAYMENT');
+      content.push(`Payment ID: ${paymentId}`);
+      content.push(`Period: ${payment.period}`);
+      if (studentInfo) {
+        content.push(`Student: ${studentInfo.first_name} ${studentInfo.last_name} (${studentInfo.student_code})`);
+      }
+      content.push(`Amount: ₱${(payment.amount_paid || payment.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+      content.push(`Payment Method: ${payment.payment_method || 'N/A'}`);
+      content.push(`Reference: ${payment.reference_number || 'N/A'}`);
+      content.push(`Processed By (user id): ${userId}`);
+      content.push(`Date: ${new Date().toLocaleString()}`);
+      content.push(`Status: Approved`);
+      fs.writeFileSync(receiptFilePath, content.join('\n'), 'utf-8');
+      // Save receipt path to the installment_payments record
+      await run(
+        `UPDATE installment_payments SET receipt_path = ?, updated_at = datetime('now') WHERE id = ?`,
+        [fileUrl, paymentId]
+      );
+    } catch (receiptErr) {
+      console.warn('Failed generating installment receipt file:', receiptErr);
+    }
 
     // Send notification to student about installment approval
     const notificationMsg = isPenaltyPayment
@@ -466,12 +531,11 @@ export const rejectInstallmentPayment = async (req: AuthRequest, res: Response) 
       [reason || '', paymentId]
     );
 
-    // Ensure enrollment stays as 'Enrolled' so student sees the
-    // Remaining Installment Payments view and can resubmit the rejected period
+    // Move enrollment back to 'For Payment' so student can resubmit
     await run(
       `UPDATE enrollments 
-       SET status = 'Enrolled', updated_at = datetime('now')
-       WHERE id = ? AND status != 'Enrolled'`,
+       SET status = 'For Payment', updated_at = datetime('now')
+       WHERE id = ?`,
       [payment.enrollment_id]
     );
 

@@ -297,7 +297,7 @@ export const getEnrollmentForAssessment = async (req: AuthRequest, res: Response
 
     const enrollments = await query(
       `SELECT e.*, 
-        s.student_id, s.first_name || ' ' || s.last_name as student_name, s.course, s.year_level
+        s.student_id, s.first_name || ' ' || s.last_name as student_name, s.course, s.year_level, s.student_classification
        FROM enrollments e
        JOIN students s ON e.student_id = s.id
        WHERE e.id = ?`,
@@ -320,7 +320,20 @@ export const getEnrollmentForAssessment = async (req: AuthRequest, res: Response
     );
 
     // If no subjects assigned yet, get available subjects and auto-assign them
+    // EXCEPT for Transferee or Irregular students — they select their own subjects during enrollment
     let availableSubjects = [];
+    const isTransfereeOrIrregular = enrollment.student_classification === 'Irregular' ||
+      (enrollment.student_type || '').toLowerCase() === 'transferee';
+
+    // Fetch student_type if not on enrollment record
+    let studentType = enrollment.student_type;
+    if (!studentType) {
+      const studentRow = await get('SELECT student_type FROM students WHERE id = ?', [enrollment.student_id]);
+      studentType = studentRow?.student_type || '';
+    }
+    const isTransferee = studentType.toLowerCase() === 'transferee';
+    const shouldAutoAssign = !isTransfereeOrIrregular && !isTransferee;
+
     if (subjects.length === 0) {
       availableSubjects = await query(
         `SELECT id, subject_code, subject_name, units, course, year_level, semester
@@ -330,8 +343,8 @@ export const getEnrollmentForAssessment = async (req: AuthRequest, res: Response
         [enrollment.course, enrollment.year_level]
       );
 
-      // Auto-assign available subjects to the enrollment
-      if (availableSubjects.length > 0) {
+      // Only auto-assign for non-Transferee/non-Irregular students
+      if (shouldAutoAssign && availableSubjects.length > 0) {
         const insertSubjectStmt = db.prepare(
           'INSERT OR IGNORE INTO enrollment_subjects (enrollment_id, subject_id, status) VALUES (?, ?, ?)'
         );
@@ -566,5 +579,233 @@ export const downloadScholarshipLetter = async (req: AuthRequest, res: Response)
   } catch (error) {
     console.error('Download scholarship letter error:', error);
     res.status(500).send('Server error');
+  }
+};
+
+// ───────────────────────────────────────────────────────────
+// Adding / Dropping of Subjects (Registrar authority)
+// ───────────────────────────────────────────────────────────
+
+/** Helper: recalculate enrollment fees after subject change */
+const recalcEnrollmentFees = async (enrollmentId: number | string) => {
+  const enrollment = await get('SELECT * FROM enrollments WHERE id = ?', [enrollmentId]);
+  if (!enrollment) return;
+
+  const subjectRows = await query(
+    `SELECT SUM(s.units) as total_units
+     FROM enrollment_subjects es
+     JOIN subjects s ON es.subject_id = s.id
+     WHERE es.enrollment_id = ? AND es.status = 'Enrolled'`,
+    [enrollmentId]
+  );
+  const totalUnits = subjectRows[0]?.total_units || 0;
+
+  // Get course via student
+  const studentRow = await get(
+    'SELECT s.course FROM students s JOIN enrollments e ON e.student_id = s.id WHERE e.id = ?',
+    [enrollmentId]
+  );
+  const feeRates = await getCourseFeeRates(studentRow?.course || '');
+  const subjectFees = totalUnits * feeRates.tuition_per_unit;
+
+  // Preserve misc assessment fees (registration, library, lab, id_fee, others)
+  const miscFees = (enrollment.registration || 0) + (enrollment.library || 0) +
+    (enrollment.lab || 0) + (enrollment.id_fee || 0) + (enrollment.others || 0);
+  const totalAmount = subjectFees + miscFees;
+
+  await run(
+    'UPDATE enrollments SET total_units = ?, tuition = ?, total_amount = ? WHERE id = ?',
+    [totalUnits, subjectFees, totalAmount, enrollmentId]
+  );
+
+  return { totalUnits, totalAmount };
+};
+
+/** Search students with active enrollments (for the add/drop tab) */
+export const searchEnrolledStudents = async (req: AuthRequest, res: Response) => {
+  try {
+    const { search, status } = req.query;
+    let sql = `
+      SELECT e.id as enrollment_id, e.status as enrollment_status, e.school_year, e.semester,
+             e.total_units, e.total_amount, e.tuition, e.registration, e.library, e.lab, e.id_fee, e.others,
+             s.id as student_id, s.student_id as student_id_number, s.first_name, s.last_name,
+             s.middle_name, s.suffix, s.course, s.year_level, s.student_type, s.student_classification
+      FROM enrollments e
+      JOIN students s ON e.student_id = s.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (status && status !== 'all') {
+      sql += ' AND e.status = ?';
+      params.push(status);
+    }
+
+    if (search) {
+      sql += ` AND (s.student_id LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR (s.first_name || ' ' || s.last_name) LIKE ?)`;
+      const like = `%${search}%`;
+      params.push(like, like, like, like);
+    }
+
+    sql += ' ORDER BY e.created_at DESC LIMIT 50';
+    const rows = await query(sql, params);
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Search enrolled students error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/** Get subjects for a specific enrollment (enrolled + available for adding) */
+export const getEnrollmentSubjectsForEdit = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const enrollment = await get(
+      'SELECT e.*, s.course, s.year_level FROM enrollments e JOIN students s ON e.student_id = s.id WHERE e.id = ?',
+      [id]
+    );
+    if (!enrollment) {
+      return res.status(404).json({ success: false, message: 'Enrollment not found' });
+    }
+
+    const enrolled = await query(
+      `SELECT es.id, es.enrollment_id, es.subject_id, es.schedule, es.room, es.instructor, es.status as es_status,
+              sub.subject_code, sub.subject_name, sub.units, sub.year_level, sub.semester
+       FROM enrollment_subjects es
+       JOIN subjects sub ON es.subject_id = sub.id
+       WHERE es.enrollment_id = ?
+       ORDER BY sub.year_level, sub.semester, sub.subject_code`,
+      [id]
+    );
+
+    const available = await query(
+      `SELECT id, subject_code, subject_name, units, year_level, semester
+       FROM subjects
+       WHERE course = ? AND is_active = 1
+       ORDER BY year_level, semester, subject_code`,
+      [enrollment.course]
+    );
+
+    res.json({
+      success: true,
+      data: { enrollment, enrolledSubjects: enrolled, availableSubjects: available }
+    });
+  } catch (error) {
+    console.error('Get enrollment subjects for edit error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/** Registrar adds a subject to an enrollment (with audit trail) */
+export const registrarAddSubject = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { subject_id, reason } = req.body;
+
+    const enrollment = await get('SELECT * FROM enrollments WHERE id = ?', [id]);
+    if (!enrollment) {
+      return res.status(404).json({ success: false, message: 'Enrollment not found' });
+    }
+
+    const existing = await get(
+      'SELECT id FROM enrollment_subjects WHERE enrollment_id = ? AND subject_id = ?',
+      [id, subject_id]
+    );
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'Subject already enrolled' });
+    }
+
+    const oldUnits = enrollment.total_units || 0;
+    const oldAmount = enrollment.total_amount || 0;
+
+    await run(
+      `INSERT INTO enrollment_subjects (enrollment_id, subject_id, status) VALUES (?, ?, 'Enrolled')`,
+      [id, subject_id]
+    );
+
+    const updated = await recalcEnrollmentFees(id);
+
+    const user = await get('SELECT username FROM users WHERE id = ?', [req.user?.id]);
+    await run(
+      `INSERT INTO enrollment_subject_audit
+        (enrollment_id, subject_id, action, reason, performed_by, performed_by_name,
+         old_total_units, new_total_units, old_total_amount, new_total_amount)
+       VALUES (?, ?, 'ADD', ?, ?, ?, ?, ?, ?, ?)`,
+      [id, subject_id, reason || null, req.user?.id, user?.username || 'unknown',
+       oldUnits, updated?.totalUnits || 0, oldAmount, updated?.totalAmount || 0]
+    );
+
+    res.json({ success: true, message: 'Subject added successfully' });
+  } catch (error) {
+    console.error('Registrar add subject error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/** Registrar drops a subject from an enrollment (with audit trail) */
+export const registrarDropSubject = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id, subjectId } = req.params;
+    const { reason } = req.body;
+
+    const enrollment = await get('SELECT * FROM enrollments WHERE id = ?', [id]);
+    if (!enrollment) {
+      return res.status(404).json({ success: false, message: 'Enrollment not found' });
+    }
+
+    const existing = await get(
+      'SELECT id FROM enrollment_subjects WHERE enrollment_id = ? AND subject_id = ?',
+      [id, subjectId]
+    );
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Subject not found in enrollment' });
+    }
+
+    const oldUnits = enrollment.total_units || 0;
+    const oldAmount = enrollment.total_amount || 0;
+
+    await run(
+      'DELETE FROM enrollment_subjects WHERE enrollment_id = ? AND subject_id = ?',
+      [id, subjectId]
+    );
+
+    const updated = await recalcEnrollmentFees(id);
+
+    const user = await get('SELECT username FROM users WHERE id = ?', [req.user?.id]);
+    await run(
+      `INSERT INTO enrollment_subject_audit
+        (enrollment_id, subject_id, action, reason, performed_by, performed_by_name,
+         old_total_units, new_total_units, old_total_amount, new_total_amount)
+       VALUES (?, ?, 'DROP', ?, ?, ?, ?, ?, ?, ?)`,
+      [id, subjectId, reason || null, req.user?.id, user?.username || 'unknown',
+       oldUnits, updated?.totalUnits || 0, oldAmount, updated?.totalAmount || 0]
+    );
+
+    res.json({ success: true, message: 'Subject dropped successfully' });
+  } catch (error) {
+    console.error('Registrar drop subject error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/** Get audit trail for an enrollment */
+export const getSubjectAuditTrail = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const rows = await query(
+      `SELECT a.*, sub.subject_code, sub.subject_name, sub.units
+       FROM enrollment_subject_audit a
+       JOIN subjects sub ON a.subject_id = sub.id
+       WHERE a.enrollment_id = ?
+       ORDER BY a.created_at DESC`,
+      [id]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Get subject audit trail error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };

@@ -75,6 +75,17 @@ async function setupDatabase() {
       }
     }
 
+    // Add student_classification column if it doesn't exist
+    try {
+      db.exec(`ALTER TABLE students ADD COLUMN student_classification TEXT DEFAULT 'Regular' CHECK(student_classification IN ('Regular', 'Irregular'))`);
+      console.log('✅ Student classification column added to students table');
+    } catch (e: any) {
+      // Column already exists, ignore
+      if (!e.message?.includes('duplicate column')) {
+        console.log('Student classification column already exists');
+      }
+    }
+
     // Create indexes
     db.exec('CREATE INDEX IF NOT EXISTS idx_student_id ON students(student_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_student_type ON students(student_type)');
@@ -88,7 +99,7 @@ async function setupDatabase() {
         student_id INTEGER NOT NULL,
         school_year TEXT NOT NULL,
         semester TEXT NOT NULL CHECK(semester IN ('1st', '2nd', 'Summer')),
-        status TEXT DEFAULT 'Pending Assessment' CHECK(status IN ('Pending Assessment', 'For Admin Approval', 'For Subject Selection', 'For Registrar Assessment', 'Cashier Review', 'For Dean Approval', 'For Payment', 'Payment Verification', 'Enrolled', 'Rejected')),
+        status TEXT DEFAULT 'Pending Assessment' CHECK(status IN ('Pending Assessment', 'For Admin Approval', 'For Subject Selection', 'For Registrar Assessment', 'Cashier Review', 'For Dean Approval', 'For Payment', 'Ready for Payment', 'Payment Verification', 'Enrolled', 'Rejected')),
         enrollment_date TEXT DEFAULT (datetime('now')),
         section_id INTEGER,
         assessed_by INTEGER,
@@ -177,7 +188,7 @@ async function setupDatabase() {
             student_id INTEGER NOT NULL,
             school_year TEXT NOT NULL,
             semester TEXT NOT NULL CHECK(semester IN ('1st', '2nd', 'Summer')),
-            status TEXT DEFAULT 'Pending Assessment' CHECK(status IN ('Pending Assessment', 'For Admin Approval', 'For Subject Selection', 'For Registrar Assessment', 'Cashier Review', 'For Dean Approval', 'For Payment', 'Payment Verification', 'Enrolled', 'Rejected')),
+            status TEXT DEFAULT 'Pending Assessment' CHECK(status IN ('Pending Assessment', 'For Admin Approval', 'For Subject Selection', 'For Registrar Assessment', 'Cashier Review', 'For Dean Approval', 'For Payment', 'Ready for Payment', 'Payment Verification', 'Enrolled', 'Rejected')),
             enrollment_date TEXT DEFAULT (datetime('now')),
             section_id INTEGER,
             assessed_by INTEGER,
@@ -269,6 +280,31 @@ async function setupDatabase() {
     // Create indexes
     db.exec('CREATE INDEX IF NOT EXISTS idx_enrollment_subjects_enrollment ON enrollment_subjects(enrollment_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_enrollment_subjects_subject ON enrollment_subjects(subject_id)');
+
+    // Create enrollment_subject_audit table (tracks all add/drop/replace changes by registrar)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS enrollment_subject_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        enrollment_id INTEGER NOT NULL,
+        subject_id INTEGER NOT NULL,
+        action TEXT NOT NULL CHECK(action IN ('ADD', 'DROP', 'REPLACE_ADD', 'REPLACE_DROP')),
+        reason TEXT,
+        performed_by INTEGER NOT NULL,
+        performed_by_name TEXT,
+        old_total_units INTEGER,
+        new_total_units INTEGER,
+        old_total_amount REAL,
+        new_total_amount REAL,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (enrollment_id) REFERENCES enrollments(id) ON DELETE CASCADE,
+        FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+        FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('✅ Enrollment subject audit table created');
+
+    db.exec('CREATE INDEX IF NOT EXISTS idx_subject_audit_enrollment ON enrollment_subject_audit(enrollment_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_subject_audit_performed_by ON enrollment_subject_audit(performed_by)');
 
     // Create documents table
     db.exec(`

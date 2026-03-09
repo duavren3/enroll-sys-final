@@ -61,6 +61,24 @@ class GradesService {
       throw new Error(handleApiError(error));
     }
   }
+
+  async getApprovedGrades(): Promise<any> {
+    try {
+      const response = await api.get('/grades/approved');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async getSubmittedGrades(): Promise<any> {
+    try {
+      const response = await api.get('/grades/submitted');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
 }
 
 export const gradesService = new GradesService();

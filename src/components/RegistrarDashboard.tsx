@@ -145,6 +145,18 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
   const [viewStudentOpen, setViewStudentOpen] = useState(false);
   const [editStudentForm, setEditStudentForm] = useState<any>({});
 
+  // Subject Management (Adding/Dropping) state
+  const [smSearch, setSmSearch] = useState('');
+  const [smStatusFilter, setSmStatusFilter] = useState('all');
+  const [smStudents, setSmStudents] = useState<any[]>([]);
+  const [smSelectedEnrollment, setSmSelectedEnrollment] = useState<any>(null);
+  const [smEnrolledSubjects, setSmEnrolledSubjects] = useState<any[]>([]);
+  const [smAvailableSubjects, setSmAvailableSubjects] = useState<any[]>([]);
+  const [smAuditTrail, setSmAuditTrail] = useState<any[]>([]);
+  const [smLoading, setSmLoading] = useState(false);
+  const [smReason, setSmReason] = useState('');
+  const [smEnrollmentData, setSmEnrollmentData] = useState<any>(null);
+
   useEffect(() => {
     fetchData();
   }, [activeSection]);
@@ -191,9 +203,104 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
         if (clearancesResponse.success) {
           setClearanceRequests(clearancesResponse.data || []);
         }
+      } else if (activeSection === 'Subject Management') {
+        // Auto-load all enrolled students when tab is opened
+        try {
+          const resp = await registrarService.searchEnrolledStudents('', 'all');
+          setSmStudents(resp?.data || []);
+        } catch (err) {
+          console.error('Auto-load enrolled students error:', err);
+        }
       } else if (activeSection === 'Grades Management') {
-        // For now, we'll show placeholder. In a real system, this would fetch from enrollment_subjects
-        setGradeSubmissions([]);
+        // Fetch both submitted (pending dean approval) and approved grades
+        try {
+          const submittedResp = await gradesService.getSubmittedGrades();
+          const approvedResp = await gradesService.getApprovedGrades();
+          
+          // Service returns { success: true, data: [...] }, extract the data array
+          const submitted = Array.isArray(submittedResp?.data) ? submittedResp.data : (Array.isArray(submittedResp) ? submittedResp : []);
+          const approved = Array.isArray(approvedResp?.data) ? approvedResp.data : (Array.isArray(approvedResp) ? approvedResp : []);
+          
+          // Map both to display format
+          const gradeMap = new Map<string, any>();
+          
+          // Process submitted grades (pending dean approval)
+          submitted.forEach((grade: any) => {
+            const key = `${grade.subject_code}-${grade.school_year}-${grade.semester}`;
+            if (!gradeMap.has(key)) {
+              gradeMap.set(key, {
+                id: grade.subject_id,
+                subject: grade.subject_name,
+                subject_code: grade.subject_code,
+                school_year: grade.school_year,
+                semester: grade.semester,
+                students: 0,
+                grades_list: [],
+                date: new Date(grade.updated_at).toLocaleDateString(),
+                status: 'Submitted'
+              });
+            }
+            
+            const item = gradeMap.get(key)!;
+            item.students += 1;
+            item.grades_list.push({
+              student: grade.student_name,
+              grade: grade.grade,
+              course: grade.course
+            });
+          });
+          
+          // Process approved grades (dean approved)
+          approved.forEach((grade: any) => {
+            const key = `${grade.subject_code}-${grade.school_year}-${grade.semester}`;
+            if (!gradeMap.has(key)) {
+              gradeMap.set(key, {
+                id: grade.subject_id,
+                subject: grade.subject_name,
+                subject_code: grade.subject_code,
+                school_year: grade.school_year,
+                semester: grade.semester,
+                students: 0,
+                grades_list: [],
+                approved_by: grade.approved_by,
+                date: new Date(grade.updated_at).toLocaleDateString(),
+                status: 'Approved'
+              });
+            } else {
+              // Update existing entry with approval info
+              const item = gradeMap.get(key)!;
+              item.approved_by = grade.approved_by;
+              item.status = 'Approved';
+            }
+            
+            const item = gradeMap.get(key)!;
+            // Only count if not already counted from submitted
+            const existingStudent = item.grades_list.find((g: any) => g.student === grade.student_name);
+            if (!existingStudent) {
+              item.students += 1;
+            }
+            // Update or add grade
+            const gradeIdx = item.grades_list.findIndex((g: any) => g.student === grade.student_name);
+            if (gradeIdx >= 0) {
+              item.grades_list[gradeIdx] = {
+                student: grade.student_name,
+                grade: grade.grade,
+                course: grade.course
+              };
+            } else {
+              item.grades_list.push({
+                student: grade.student_name,
+                grade: grade.grade,
+                course: grade.course
+              });
+            }
+          });
+          
+          setGradeSubmissions(Array.from(gradeMap.values()));
+        } catch (err) {
+          console.error('Failed to load grades:', err);
+          setGradeSubmissions([]);
+        }
         } else if (activeSection === 'Pending Enrollments') {
           // Fetch enrollments in both 'Pending Assessment' and 'For Admin Approval' status
           const pendingResp = await adminService.getAllEnrollments({ status: 'Pending Assessment' });
@@ -367,7 +474,21 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
       const finalTuition = assessmentForm.tuition - getTuitionDeduction(assessmentForm.scholarship_coverage, assessmentForm.tuition);
       const formToSubmit = { ...assessmentForm, tuition: finalTuition };
       await registrarService.assessEnrollment(selectedEnrollmentForAssess.id, formToSubmit);
-      // 2. Forward to Cashier for review
+      
+      // 2. Auto-assign section if student has already selected one in their profile
+      if (selectedEnrollmentForAssess.section) {
+        try {
+          // Find the section ID by section code
+          const sectionToAssign = sections.find(s => s.section_code === selectedEnrollmentForAssess.section);
+          if (sectionToAssign) {
+            await registrarService.assignSection(selectedEnrollmentForAssess.id, sectionToAssign.id);
+          }
+        } catch (sectionErr) {
+          console.warn('Could not auto-assign section:', sectionErr);
+        }
+      }
+      
+      // 3. Forward to Cashier for review
       await registrarService.approveSubjectAssessment(selectedEnrollmentForAssess.id, {
         ...formToSubmit,
         remarks: assessmentForm.remarks
@@ -524,6 +645,11 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
         updateData.moral_certificate_status = editStudentForm.moral_certificate || 'Pending';
       } else if (studentType === 'Returning' || studentType === 'returning') {
         updateData.form137_status = editStudentForm.form137 || 'Pending';
+      }
+      
+      // Add student classification
+      if (editStudentForm.student_classification !== undefined) {
+        updateData.student_classification = editStudentForm.student_classification;
       }
       
       console.log('Update data to send:', updateData);
@@ -804,6 +930,9 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                             {student.clearance_status || 'Clear'}
                           </Badge>
                           <Badge variant="secondary">{student.status || 'Active'}</Badge>
+                          <Badge className={student.student_classification === 'Irregular' ? 'bg-amber-100 text-amber-700 border-0' : 'bg-blue-100 text-blue-700 border-0'}>
+                            {student.student_classification || 'Regular'}
+                          </Badge>
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -887,7 +1016,43 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
             </TabsContent>
             
             <TabsContent value="finalized" className="mt-6">
-              <p className="text-center text-slate-500 py-8">No finalized grades for this period</p>
+              {gradeSubmissions.filter(g => g.status === 'Approved').length === 0 ? (
+                <p className="text-center text-slate-500 py-8">No finalized grades for this period</p>
+              ) : (
+                <div className="space-y-4">
+                  {gradeSubmissions.filter(g => g.status === 'Approved').map((submission) => (
+                    <div key={submission.id} className="p-4 border border-green-200 bg-green-50 rounded-lg">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex-1">
+                          <h4 className="text-slate-900 font-medium">{submission.subject_code} - {submission.subject}</h4>
+                          <p className="text-sm text-slate-600 mt-1">
+                            {submission.school_year} {submission.semester} Semester
+                          </p>
+                          <p className="text-sm text-slate-500 mt-1">{submission.students} students</p>
+                          {submission.approved_by && (
+                            <p className="text-xs text-green-600 mt-2">Approved by: {submission.approved_by}</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-1">{submission.date}</p>
+                        </div>
+                        <Badge className="bg-green-100 text-green-800 border-0">
+                          Finalized
+                        </Badge>
+                      </div>
+                      <div className="mt-3 p-3 bg-white rounded border border-green-100 text-sm">
+                        <p className="font-medium mb-2 text-slate-700">Student Grades:</p>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {submission.grades_list?.map((grade: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-xs">
+                              <span className="text-slate-600">{grade.student}</span>
+                              <span className="font-semibold text-slate-900">{grade.grade}</span>
+                            </div>
+                          )) || <p className="text-slate-500">No grades recorded</p>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </div>
@@ -1059,6 +1224,11 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                         <h4 className="text-slate-900">{e.first_name} {e.last_name}</h4>
                         <p className="text-sm text-slate-500">Enrollment #{e.id} • {e.school_year} • {e.semester}{e.section ? ` • Section ${e.section}` : ''}</p>
                         <p className="text-sm text-slate-600 mt-2">Status: {e.status}</p>
+                        {e.section && (
+                          <p className="text-sm text-emerald-700 font-medium mt-1">
+                            ✓ Section: {e.section} (auto-assigned during assessment)
+                          </p>
+                        )}
                         {e.status === 'For Admin Approval' && e.total_amount && (
                           <p className="text-sm text-green-700 font-medium mt-1">
                             Assessment: ₱{e.total_amount?.toLocaleString() || '0.00'}
@@ -1124,16 +1294,6 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                         <Button 
                           size="sm" 
                           variant="outline"
-                          onClick={() => {
-                            setAssignForm({ enrollmentId: e.id, sectionId: '' });
-                            setAssignDialogOpen(true);
-                          }}
-                        >
-                          Assign Section
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          variant="outline"
                           className="text-red-600 hover:bg-red-50 border-red-200"
                           onClick={() => {
                             setApprovalAction({ type: 'reject', enrollment: e });
@@ -1165,6 +1325,392 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
             )}
           </div>
         </Card>
+      </div>
+    );
+  };
+
+  // ─── Subject Management (Adding / Dropping) ─────────────────────────
+  const smSearchStudents = async (searchVal?: string) => {
+    try {
+      setSmLoading(true);
+      const resp = await registrarService.searchEnrolledStudents(searchVal ?? smSearch, smStatusFilter);
+      setSmStudents(resp?.data || []);
+    } catch (err) {
+      console.error('Search enrolled students error:', err);
+      setSmStudents([]);
+    } finally {
+      setSmLoading(false);
+    }
+  };
+
+  const smLoadEnrollmentSubjects = async (enrollmentId: number) => {
+    try {
+      setSmLoading(true);
+      const resp = await registrarService.getEnrollmentSubjectsForEdit(enrollmentId);
+      const d = resp?.data || resp;
+      setSmEnrolledSubjects(d.enrolledSubjects || []);
+      setSmAvailableSubjects(d.availableSubjects || []);
+      setSmEnrollmentData(d.enrollment || null);
+      // Also load audit trail
+      const auditResp = await registrarService.getSubjectAuditTrail(enrollmentId);
+      setSmAuditTrail(auditResp?.data || []);
+    } catch (err) {
+      console.error('Load enrollment subjects error:', err);
+    } finally {
+      setSmLoading(false);
+    }
+  };
+
+  const smHandleAddSubject = async (subjectId: number) => {
+    if (!smSelectedEnrollment) return;
+    try {
+      setSmLoading(true);
+      await registrarService.registrarAddSubject(smSelectedEnrollment.enrollment_id, subjectId, smReason || undefined);
+      setSmReason('');
+      await smLoadEnrollmentSubjects(smSelectedEnrollment.enrollment_id);
+    } catch (err: any) {
+      console.error('Add subject error:', err);
+      alert(err.message || 'Failed to add subject');
+    } finally {
+      setSmLoading(false);
+    }
+  };
+
+  const smHandleDropSubject = async (subjectId: number) => {
+    if (!smSelectedEnrollment) return;
+    try {
+      setSmLoading(true);
+      await registrarService.registrarDropSubject(smSelectedEnrollment.enrollment_id, subjectId, smReason || undefined);
+      setSmReason('');
+      await smLoadEnrollmentSubjects(smSelectedEnrollment.enrollment_id);
+    } catch (err: any) {
+      console.error('Drop subject error:', err);
+      alert(err.message || 'Failed to drop subject');
+    } finally {
+      setSmLoading(false);
+    }
+  };
+
+  const renderSubjectManagementContent = () => {
+    const enrolledIds = new Set(smEnrolledSubjects.map((s: any) => s.subject_id));
+    const notEnrolled = smAvailableSubjects.filter((s: any) => !enrolledIds.has(s.id));
+
+    return (
+      <div className="space-y-4 -mx-4">
+        {/* Search Bar */}
+        <Card className="p-4 mx-4">
+          <div className="flex gap-3">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Search by student name or ID..."
+                value={smSearch}
+                onChange={(e) => setSmSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && smSearchStudents()}
+                className="pl-10"
+              />
+            </div>
+            <Select value={smStatusFilter} onValueChange={(v) => setSmStatusFilter(v)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Status filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="Enrolled">Enrolled</SelectItem>
+                <SelectItem value="For Payment">For Payment</SelectItem>
+                <SelectItem value="Pending Assessment">Pending Assessment</SelectItem>
+                <SelectItem value="For Registrar Assessment">For Registrar Assessment</SelectItem>
+                <SelectItem value="Cashier Review">Cashier Review</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => smSearchStudents()} disabled={smLoading}>
+              {smLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              <span className="ml-2">Search</span>
+            </Button>
+          </div>
+        </Card>
+
+        {/* Two-Column Layout: Left = Student List, Right = Subject Editor */}
+        <div className="flex gap-4 px-4" style={{ minHeight: '620px' }}>
+          {/* Student List */}
+          <div className="w-[340px] shrink-0">
+            <Card className="p-0 overflow-hidden h-full">
+              <div className="px-4 py-3 bg-slate-50 border-b">
+                <h3 className="text-sm font-semibold text-slate-700">
+                  Student Enrollments {smStudents.length > 0 && <span className="text-slate-400 font-normal">({smStudents.length})</span>}
+                </h3>
+              </div>
+              <ScrollArea className="h-[580px]">
+                {smStudents.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <Search className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-400">{smLoading ? 'Loading students...' : 'No student enrollments found'}</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {smStudents.map((stu: any) => (
+                      <button
+                        key={stu.enrollment_id}
+                        onClick={() => {
+                          setSmSelectedEnrollment(stu);
+                          smLoadEnrollmentSubjects(stu.enrollment_id);
+                        }}
+                        className={`w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors ${
+                          smSelectedEnrollment?.enrollment_id === stu.enrollment_id ? 'bg-blue-50 border-l-4 border-blue-600' : ''
+                        }`}
+                      >
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {stu.first_name} {stu.last_name} {stu.suffix || ''}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">{stu.student_id_number} · {stu.course} Year {stu.year_level}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge className={
+                            stu.enrollment_status === 'Enrolled' ? 'bg-green-100 text-green-700 border-0 text-[10px]' :
+                            stu.enrollment_status === 'For Payment' ? 'bg-amber-100 text-amber-700 border-0 text-[10px]' :
+                            'bg-blue-100 text-blue-700 border-0 text-[10px]'
+                          }>
+                            {stu.enrollment_status}
+                          </Badge>
+                          <span className="text-[10px] text-slate-400">{stu.school_year} · {stu.semester}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+          </div>
+
+          {/* Subject Editor + Audit */}
+          <div className="flex-1 min-w-0 space-y-4">
+            {!smSelectedEnrollment ? (
+              <Card className="p-12 text-center">
+                <BookOpen className="h-12 w-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-500 font-medium">Select a student enrollment to manage subjects</p>
+                <p className="text-sm text-slate-400 mt-1">Search and click on a student from the left panel</p>
+              </Card>
+            ) : (
+              <>
+                {/* Student Info Header */}
+                <Card className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-slate-900">
+                        {smSelectedEnrollment.first_name} {smSelectedEnrollment.last_name} {smSelectedEnrollment.suffix || ''}
+                      </h3>
+                      <p className="text-sm text-slate-500">
+                        {smSelectedEnrollment.student_id_number} · {smSelectedEnrollment.course} · Year {smSelectedEnrollment.year_level}
+                        {smSelectedEnrollment.student_classification === 'Irregular' && (
+                          <Badge className="ml-2 bg-amber-100 text-amber-700 border-0 text-[10px]">Irregular</Badge>
+                        )}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-slate-500">
+                        Units: <span className="font-bold text-slate-800">{smEnrollmentData?.total_units || 0}</span>
+                        {' · '}
+                        Total: <span className="font-bold text-indigo-600">₱{(smEnrollmentData?.total_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      </p>
+                      <Badge className={
+                        smSelectedEnrollment.enrollment_status === 'Enrolled' ? 'bg-green-100 text-green-700 border-0' :
+                        'bg-blue-100 text-blue-700 border-0'
+                      }>
+                        {smSelectedEnrollment.enrollment_status}
+                      </Badge>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Reason Input */}
+                <Card className="p-4">
+                  <Label className="text-xs text-slate-500 mb-1 block">Reason for change (optional — recorded in audit trail)</Label>
+                  <Input
+                    placeholder="e.g., Schedule conflict, student request, prerequisite not met..."
+                    value={smReason}
+                    onChange={(e) => setSmReason(e.target.value)}
+                  />
+                </Card>
+
+                <Tabs defaultValue="enrolled">
+                  <TabsList>
+                    <TabsTrigger value="enrolled">Enrolled Subjects ({smEnrolledSubjects.length})</TabsTrigger>
+                    <TabsTrigger value="available">Available to Add ({notEnrolled.length})</TabsTrigger>
+                    <TabsTrigger value="audit">Audit Trail ({smAuditTrail.length})</TabsTrigger>
+                  </TabsList>
+
+                  {/* Enrolled Subjects */}
+                  <TabsContent value="enrolled">
+                    <Card className="p-0 overflow-hidden">
+                      {smLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                        </div>
+                      ) : smEnrolledSubjects.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <AlertCircle className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-400">No subjects enrolled yet</p>
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Code</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Subject Name</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Units</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Year</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Semester</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Status</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {smEnrolledSubjects.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-red-50/30 transition-colors">
+                                <td className="px-4 py-3 font-mono font-semibold text-slate-800">{s.subject_code}</td>
+                                <td className="px-4 py-3 text-slate-700">{s.subject_name}</td>
+                                <td className="px-4 py-3 text-center">{s.units}</td>
+                                <td className="px-4 py-3 text-center">{s.year_level || '-'}</td>
+                                <td className="px-4 py-3 text-center">{s.semester || '-'}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <Badge className="bg-green-100 text-green-700 border-0 text-[10px]">{s.es_status}</Badge>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => smHandleDropSubject(s.subject_id)}
+                                    disabled={smLoading}
+                                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 h-7 text-xs"
+                                  >
+                                    <Trash2 className="h-3 w-3 mr-1" />
+                                    Drop
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-slate-50">
+                            <tr>
+                              <td colSpan={2} className="px-4 py-3 text-sm font-semibold text-slate-700">Total</td>
+                              <td className="px-4 py-3 text-center font-bold text-slate-800">
+                                {smEnrolledSubjects.reduce((sum: number, s: any) => sum + (s.units || 0), 0)}
+                              </td>
+                              <td colSpan={4}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      )}
+                    </Card>
+                  </TabsContent>
+
+                  {/* Available Subjects to Add */}
+                  <TabsContent value="available">
+                    <Card className="p-0 overflow-hidden">
+                      {smLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+                        </div>
+                      ) : notEnrolled.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <CheckCircle className="h-8 w-8 text-green-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-400">All available subjects are already enrolled</p>
+                        </div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Code</th>
+                              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Subject Name</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Units</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Year</th>
+                              <th className="px-4 py-3 text-center text-xs font-semibold text-slate-500">Semester</th>
+                              <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {notEnrolled.map((s: any) => (
+                              <tr key={s.id} className="hover:bg-green-50/30 transition-colors">
+                                <td className="px-4 py-3 font-mono font-semibold text-slate-600">{s.subject_code}</td>
+                                <td className="px-4 py-3 text-slate-600">{s.subject_name}</td>
+                                <td className="px-4 py-3 text-center">{s.units}</td>
+                                <td className="px-4 py-3 text-center">{s.year_level || '-'}</td>
+                                <td className="px-4 py-3 text-center">{s.semester || '-'}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => smHandleAddSubject(s.id)}
+                                    disabled={smLoading}
+                                    className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700 h-7 text-xs"
+                                  >
+                                    <Plus className="h-3 w-3 mr-1" />
+                                    Add
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </Card>
+                  </TabsContent>
+
+                  {/* Audit Trail */}
+                  <TabsContent value="audit">
+                    <Card className="p-0 overflow-hidden">
+                      {smAuditTrail.length === 0 ? (
+                        <div className="p-8 text-center">
+                          <Clock className="h-8 w-8 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm text-slate-400">No changes recorded yet</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {smAuditTrail.map((entry: any) => (
+                            <div key={entry.id} className="px-4 py-3 hover:bg-slate-50 transition-colors">
+                              <div className="flex items-start justify-between">
+                                <div className="flex items-start gap-3">
+                                  <div className={`mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 ${
+                                    entry.action === 'ADD' || entry.action === 'REPLACE_ADD'
+                                      ? 'bg-green-100 text-green-600'
+                                      : 'bg-red-100 text-red-600'
+                                  }`}>
+                                    {entry.action === 'ADD' || entry.action === 'REPLACE_ADD' ? (
+                                      <Plus className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-slate-800">
+                                      <span className={entry.action === 'ADD' || entry.action === 'REPLACE_ADD' ? 'text-green-700' : 'text-red-700'}>
+                                        {entry.action === 'ADD' ? 'Added' : entry.action === 'DROP' ? 'Dropped' : entry.action === 'REPLACE_ADD' ? 'Replaced (Added)' : 'Replaced (Removed)'}
+                                      </span>
+                                      {' '}<span className="font-mono">{entry.subject_code}</span> — {entry.subject_name} ({entry.units}u)
+                                    </p>
+                                    {entry.reason && (
+                                      <p className="text-xs text-slate-500 mt-0.5">Reason: {entry.reason}</p>
+                                    )}
+                                    <p className="text-xs text-slate-400 mt-0.5">
+                                      Units: {entry.old_total_units} → {entry.new_total_units} · Total: ₱{(entry.old_total_amount || 0).toLocaleString()} → ₱{(entry.new_total_amount || 0).toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0 ml-4">
+                                  <p className="text-xs text-slate-500">{entry.performed_by_name}</p>
+                                  <p className="text-[10px] text-slate-400">{new Date(entry.created_at).toLocaleString()}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  </TabsContent>
+                </Tabs>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -1259,6 +1805,18 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
               <CheckCircle className="h-5 w-5" />
               Clearances
             </button>
+
+            <button
+              onClick={() => setActiveSection('Subject Management')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                activeSection === 'Subject Management' 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' 
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <BookOpen className="h-5 w-5" />
+              Adding/Dropping
+            </button>
           </nav>
 
           <div className="p-4 border-t border-slate-200">
@@ -1286,6 +1844,7 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                   {activeSection === 'Grades Management' && 'Grades Management'}
                   {activeSection === 'COR Management' && 'COR Management'}
                   {activeSection === 'Clearances' && 'Clearances'}
+                  {activeSection === 'Subject Management' && 'Adding / Dropping of Subjects'}
                 </h1>
                 <p className="text-sm text-slate-600">
                   {activeSection === 'Dashboard' && 'Student records and academic documentation'}
@@ -1294,6 +1853,7 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                   {activeSection === 'Grades Management' && 'Track faculty grade submissions and finalize grades'}
                   {activeSection === 'COR Management' && 'Generate and manage Certification of Registration'}
                   {activeSection === 'Clearances' && 'Resolve student clearance issues and requirements'}
+                  {activeSection === 'Subject Management' && 'Add, drop, or replace subjects in student enrollments with full audit trail'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -1314,6 +1874,7 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
             {activeSection === 'COR Management' && renderCORManagementContent()}
             {activeSection === 'Clearances' && renderClearanceContent()}
             {activeSection === 'Pending Enrollments' && renderPendingEnrollmentsContent()}
+            {activeSection === 'Subject Management' && renderSubjectManagementContent()}
           </div>
         </div>
       </div>
@@ -1573,6 +2134,14 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                     <Label className="text-slate-600 text-xs">Clearance Status</Label>
                     <p className="text-sm font-medium mt-1">{selectedRecord.clearance_status || 'Clear'}</p>
                   </div>
+                  <div>
+                    <Label className="text-slate-600 text-xs">Classification</Label>
+                    <p className="text-sm font-medium mt-1">
+                      <Badge className={selectedRecord.student_classification === 'Irregular' ? 'bg-amber-100 text-amber-700 border-0' : 'bg-blue-100 text-blue-700 border-0'}>
+                        {selectedRecord.student_classification || 'Regular'}
+                      </Badge>
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -1738,6 +2307,30 @@ export default function RegistrarDashboard({ onLogout }: RegistrarDashboardProps
                       </div>
                     </>
                   ) : null}
+                </div>
+              </div>
+
+              {/* Student Classification - Editable */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 mb-4">Student Classification</h3>
+                <div className="space-y-3">
+                  <div>
+                    <Label>Classification Status</Label>
+                    <select
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      value={editStudentForm.student_classification || selectedRecord.student_classification || 'Regular'}
+                      onChange={(e) => {
+                        console.log('Student classification changed to:', e.target.value);
+                        setEditStudentForm((p: any) => ({ ...p, student_classification: e.target.value }));
+                      }}
+                    >
+                      <option value="Regular">Regular</option>
+                      <option value="Irregular">Irregular</option>
+                    </select>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Set to "Irregular" if student is not following normal academic progression (e.g., taking courses out of sequence, part-time enrollment, extended completion time)
+                    </p>
+                  </div>
                 </div>
               </div>
 

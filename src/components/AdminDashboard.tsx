@@ -235,6 +235,13 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
   const [loadingSection, setLoadingSection] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
 
+  // Student Documents state
+  const [sdSearchStudent, setSDSearchStudent] = useState('');
+  const [sdEnrollments, setSDEnrollments] = useState<any[]>([]);
+  const [sdSelectedEnrollment, setSDSelectedEnrollment] = useState<any>(null);
+  const [sdDocuments, setSDDocuments] = useState<any[]>([]);
+  const [sdLoading, setSDLoading] = useState(false);
+
   // Confirmation dialog state
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmData, setConfirmData] = useState<any>({
@@ -289,6 +296,24 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
       }
     })();
   }, [activeSection, selectedSchoolYear, selectedSemester]);
+
+  // Load Student Documents enrollments when section is active
+  useEffect(() => {
+    if (activeSection === 'Student Documents' && sdEnrollments.length === 0) {
+      const loadEnrollments = async () => {
+        try {
+          setSDLoading(true);
+          const response = await enrollmentService.getAllEnrollments();
+          setSDEnrollments(response?.data || []);
+        } catch (err) {
+          console.error('Failed to load enrollments:', err);
+        } finally {
+          setSDLoading(false);
+        }
+      };
+      loadEnrollments();
+    }
+  }, [activeSection]);
 
   const fetchDashboardData = async () => {
     try {
@@ -2768,6 +2793,147 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
     );
   };
 
+  const renderStudentDocumentsContent = () => {
+    // Fetch documents when enrollment is selected
+    const handleSelectEnrollment = async (enrollment: any) => {
+      setSDSelectedEnrollment(enrollment);
+      try {
+        setSDLoading(true);
+        const response = await studentService.getEnrollmentDocuments(enrollment.id);
+        setSDDocuments(response?.data || []);
+      } catch (err) {
+        console.error('Failed to load documents:', err);
+        setSDDocuments([]);
+      } finally {
+        setSDLoading(false);
+      }
+    };
+
+    // Get document status
+    const getDocumentStatus = (docType: string) => {
+      const doc = sdDocuments.find(d => d.document_type === docType);
+      if (!doc) return { status: 'missing', label: 'Missing', color: 'text-red-600', bg: 'bg-red-50' };
+      if (doc.status === 'marked_to_follow') return { status: 'to_follow', label: 'Marked to Follow', color: 'text-amber-600', bg: 'bg-amber-50' };
+      return { status: 'submitted', label: 'Submitted', color: 'text-green-600', bg: 'bg-green-50' };
+    };
+
+    const filteredEnrollments = sdEnrollments.filter(e =>
+      !sdSearchStudent || 
+      e.student_id?.toString().includes(sdSearchStudent) ||
+      e.student_name?.toLowerCase().includes(sdSearchStudent.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Student List */}
+          <div className="lg:col-span-1">
+            <Card className="border-0 shadow-md sticky top-4">
+              <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <h3 className="font-semibold text-slate-900 text-sm mb-3">Search Students</h3>
+                <Input 
+                  placeholder="Student ID or Name"
+                  value={sdSearchStudent}
+                  onChange={(e) => setSDSearchStudent(e.target.value)}
+                  className="bg-white"
+                />
+              </div>
+              <ScrollArea className="h-[500px]">
+                <div className="divide-y divide-slate-200">
+                  {filteredEnrollments.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-slate-500">
+                      {sdLoading ? 'Loading...' : 'No enrollments found'}
+                    </div>
+                  ) : (
+                    filteredEnrollments.map((enrollment) => (
+                      <button
+                        key={enrollment.id}
+                        onClick={() => handleSelectEnrollment(enrollment)}
+                        className={`w-full p-3 text-left transition-colors ${
+                          sdSelectedEnrollment?.id === enrollment.id 
+                            ? 'bg-blue-50 border-l-4 border-blue-600' 
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="font-medium text-sm text-slate-900">{enrollment.student_name}</p>
+                        <p className="text-xs text-slate-600 mt-1">ID: {enrollment.student_id}</p>
+                        <p className="text-xs text-slate-500 mt-1">{enrollment.course_name} - {enrollment.year_level}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </Card>
+          </div>
+
+          {/* Documents View */}
+          <div className="lg:col-span-2">
+            {!sdSelectedEnrollment ? (
+              <Card className="border-2 border-dashed border-slate-300 bg-gradient-to-br from-slate-50 to-slate-100">
+                <div className="flex flex-col items-center justify-center py-16 px-6">
+                  <FileText className="h-16 w-16 text-slate-300 mb-4" />
+                  <h3 className="text-slate-900 font-semibold text-lg mb-2">Select a Student</h3>
+                  <p className="text-slate-600 text-center">Choose a student from the list to view their document submissions</p>
+                </div>
+              </Card>
+            ) : (
+              <Card className="border-0 shadow-md">
+                <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                  <h3 className="font-semibold text-slate-900 text-lg">{sdSelectedEnrollment.student_name}</h3>
+                  <p className="text-sm text-slate-600 mt-1">Student ID: {sdSelectedEnrollment.student_id} | {sdSelectedEnrollment.course_name}</p>
+                </div>
+
+                {sdLoading ? (
+                  <div className="p-8 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-blue-600" />
+                    <p className="text-slate-600 mt-2">Loading documents...</p>
+                  </div>
+                ) : sdDocuments.length === 0 ? (
+                  <div className="p-8 text-center text-slate-600">
+                    <AlertCircle className="h-8 w-8 mx-auto text-amber-600 mb-2" />
+                    <p>No documents found for this enrollment</p>
+                  </div>
+                ) : (
+                  <div className="p-6 space-y-3">
+                    {sdDocuments.map((doc) => {
+                      const statusInfo = getDocumentStatus(doc.document_type);
+                      return (
+                        <div key={doc.id} className={`p-4 border border-slate-200 rounded-lg flex items-center justify-between ${statusInfo.bg}`}>
+                          <div className="flex items-center gap-4 flex-1">
+                            <FileText className={`h-5 w-5 ${statusInfo.color}`} />
+                            <div>
+                              <p className="font-medium text-slate-900 text-sm">{doc.document_type.replace(/_/g, ' ').toUpperCase()}</p>
+                              <p className="text-xs text-slate-600">{doc.file_name}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge className={`${statusInfo.color} border-current bg-transparent`}>
+                              {statusInfo.label}
+                            </Badge>
+                            {doc.file_path && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => window.open(doc.file_path, '_blank')}
+                                className="text-blue-600 hover:text-blue-700"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       <div className="flex min-h-screen">
@@ -2860,6 +3026,12 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   >
                     Forms
                   </button>
+                  <button 
+                    onClick={() => setActiveSection('Student Documents')}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Student Documents
+                  </button>
                 </CollapsibleContent>
               </Collapsible>
 
@@ -2930,6 +3102,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   {activeSection === 'Transactions' && 'Transactions'}
                   {activeSection === 'Installment Payments' && 'Installment Payments'}
                   {activeSection === 'Manage Forms' && 'Digital Forms Library'}
+                  {activeSection === 'Student Documents' && 'Student Document Submissions'}
                 </h1>
                 <p className="text-sm text-slate-600">
                   {activeSection === 'Dashboard' && 'Welcome back to your administration portal'}
@@ -2947,6 +3120,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
                   {activeSection === 'Transactions' && 'Monitor all enrollment and payment transactions'}
                   {activeSection === 'Installment Payments' && 'Track installment payment submissions and verification'}
                   {activeSection === 'Manage Forms' && 'Upload and manage downloadable forms for students'}
+                  {activeSection === 'Student Documents' && 'Review student document submissions and track submission status'}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -2974,6 +3148,7 @@ export default function AdminDashboard({ onLogout }: AdminDashboardProps) {
             {activeSection === 'College Subjects' && renderSubjectsContent('College')}
             {activeSection === 'School Year' && renderSchoolYearContent()}
             {activeSection === 'Manage Forms' && renderManageFormsContent()}
+            {activeSection === 'Student Documents' && renderStudentDocumentsContent()}
           </div>
         </div>
 

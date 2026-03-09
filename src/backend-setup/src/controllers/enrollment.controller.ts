@@ -241,12 +241,13 @@ export const addSubjectToEnrollment = async (req: AuthRequest, res: Response) =>
       });
     }
 
-    // Registrar can add subjects regardless of status; students are restricted to "For Subject Selection"
+    // Registrar can add subjects regardless of status; students can add during "For Subject Selection" or "Pending Assessment" (for Transferee/Irregular pre-assessment subject selection)
     const isRegistrar = req.user?.role === 'registrar';
-    if (!isRegistrar && enrollments[0].status !== 'For Subject Selection') {
+    const allowedStatuses = ['For Subject Selection', 'Pending Assessment'];
+    if (!isRegistrar && !allowedStatuses.includes(enrollments[0].status)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot add subjects. Enrollment must be in "For Subject Selection" status.'
+        message: 'Cannot add subjects. Enrollment must be in "For Subject Selection" or "Pending Assessment" status.'
       });
     }
 
@@ -369,12 +370,13 @@ export const removeSubjectFromEnrollment = async (req: AuthRequest, res: Respons
       });
     }
 
-    // Registrar can remove subjects regardless of status; students are restricted to "For Subject Selection"
+    // Registrar can remove subjects regardless of status; students can remove during "For Subject Selection" or "Pending Assessment" (for Transferee/Irregular pre-assessment subject selection)
     const isRegistrar = req.user?.role === 'registrar';
-    if (!isRegistrar && enrollments[0].status !== 'For Subject Selection') {
+    const allowedStatuses = ['For Subject Selection', 'Pending Assessment'];
+    if (!isRegistrar && !allowedStatuses.includes(enrollments[0].status)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot remove subjects. Enrollment must be in "For Subject Selection" status.'
+        message: 'Cannot remove subjects. Enrollment must be in "For Subject Selection" or "Pending Assessment" status.'
       });
     }
 
@@ -840,7 +842,7 @@ export const submitPayment = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if (enrollments[0].status !== 'For Payment') {
+    if (enrollments[0].status !== 'For Payment' && enrollments[0].status !== 'Ready for Payment') {
       return res.status(400).json({
         success: false,
         message: 'Enrollment is not in For Payment status'

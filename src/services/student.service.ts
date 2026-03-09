@@ -140,6 +140,18 @@ class StudentService {
       throw new Error(handleApiError(error));
     }
   }
+
+  /**
+   * Get documents for an enrollment
+   */
+  async getEnrollmentDocuments(enrollmentId: number): Promise<any> {
+    try {
+      const response = await api.get(`/students/documents/enrollment/${enrollmentId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
 }
 
 export const studentService = new StudentService();

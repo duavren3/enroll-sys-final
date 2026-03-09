@@ -4,7 +4,10 @@ import {
   updateGrade,
   bulkUpdateGrades,
   getGradesBySection,
-  getPendingGrades
+  getPendingGrades,
+  approveGrade,
+  getApprovedGrades,
+  getSubmittedGrades
 } from '../controllers/grades.controller';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 
@@ -15,6 +18,8 @@ router.put('/:id', authenticate, authorize('admin', 'superadmin', 'registrar'), 
 router.post('/bulk', authenticate, authorize('admin', 'superadmin', 'registrar'), bulkUpdateGrades);
 router.get('/section', authenticate, authorize('admin', 'superadmin', 'registrar', 'dean'), getGradesBySection);
 router.get('/pending', authenticate, authorize('dean', 'admin', 'superadmin'), getPendingGrades);
+router.get('/approved', authenticate, authorize('registrar', 'admin', 'superadmin'), getApprovedGrades);
+router.get('/submitted', authenticate, authorize('registrar', 'admin', 'superadmin'), getSubmittedGrades);
 router.post('/:id/approve', authenticate, authorize('dean', 'admin', 'superadmin'), (req, res, next) => require('../controllers/grades.controller').approveGrade(req, res).catch(next));
 
 export default router;

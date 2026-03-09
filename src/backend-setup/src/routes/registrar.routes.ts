@@ -10,7 +10,12 @@ import {
   getPendingSubjectAssessments,
   getEnrollmentForAssessment,
   approveSubjectAssessment,
-  downloadScholarshipLetter
+  downloadScholarshipLetter,
+  searchEnrolledStudents,
+  getEnrollmentSubjectsForEdit,
+  registrarAddSubject,
+  registrarDropSubject,
+  getSubjectAuditTrail
 } from '../controllers/registrar.controller';
 import { assessEnrollment, verifyPayment, approveEnrollment, rejectEnrollment } from '../controllers/enrollment.controller';
 import { authenticate, authorize } from '../middleware/auth.middleware';
@@ -50,5 +55,12 @@ router.get('/reports/enrollments', authenticate, authorize('registrar', 'admin',
 
 // Scholarship Downloads
 router.get('/scholarships/download/:filename', authenticate, authorize('registrar', 'superadmin'), downloadScholarshipLetter);
+
+// Adding / Dropping of Subjects
+router.get('/subject-management/search', authenticate, authorize('registrar', 'superadmin'), searchEnrolledStudents);
+router.get('/subject-management/:id/subjects', authenticate, authorize('registrar', 'superadmin'), getEnrollmentSubjectsForEdit);
+router.post('/subject-management/:id/add-subject', authenticate, authorize('registrar', 'superadmin'), registrarAddSubject);
+router.delete('/subject-management/:id/drop-subject/:subjectId', authenticate, authorize('registrar', 'superadmin'), registrarDropSubject);
+router.get('/subject-management/:id/audit-trail', authenticate, authorize('registrar', 'superadmin'), getSubjectAuditTrail);
 
 export default router;

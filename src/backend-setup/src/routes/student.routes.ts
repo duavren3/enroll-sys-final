@@ -6,7 +6,8 @@ import {
   getEnrollmentSubjectsDebug,
   uploadDocument,
   downloadDocument,
-  getDocumentByPath
+  getDocumentByPath,
+  getEnrollmentDocuments
 } from '../controllers/student.controller';
 import { authenticate, authorize } from '../middleware/auth.middleware';
 import multer from 'multer';
@@ -51,5 +52,6 @@ router.get('/enrollment-subjects/debug', authenticate, getEnrollmentSubjectsDebu
 router.post('/documents', authenticate, authorize('student'), upload.single('document'), uploadDocument);
 router.get('/documents/:id/download', authenticate, downloadDocument);
 router.get('/documents/download', authenticate, getDocumentByPath);
+router.get('/documents/enrollment/:enrollmentId', authenticate, authorize('admin', 'superadmin'), getEnrollmentDocuments);
 
 export default router;

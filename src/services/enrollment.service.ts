@@ -31,6 +31,18 @@ class EnrollmentService {
   }
 
   /**
+   * Get all enrollments (for admin/dean/registrar)
+   */
+  async getAllEnrollments(): Promise<any> {
+    try {
+      const response = await api.get('/admin/enrollments');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  /**
    * Get enrollment details with subjects
    */
   async getEnrollmentDetails(id: number): Promise<any> {

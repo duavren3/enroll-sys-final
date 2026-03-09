@@ -198,6 +198,59 @@ class RegistrarService {
       throw new Error(handleApiError(error));
     }
   }
+
+  // ── Subject Management (Adding / Dropping) ──
+
+  async searchEnrolledStudents(search?: string, status?: string): Promise<any> {
+    try {
+      const response = await api.get('/registrar/subject-management/search', {
+        params: { search, status }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async getEnrollmentSubjectsForEdit(enrollmentId: number): Promise<any> {
+    try {
+      const response = await api.get(`/registrar/subject-management/${enrollmentId}/subjects`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async registrarAddSubject(enrollmentId: number, subjectId: number, reason?: string): Promise<any> {
+    try {
+      const response = await api.post(`/registrar/subject-management/${enrollmentId}/add-subject`, {
+        subject_id: subjectId, reason
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async registrarDropSubject(enrollmentId: number, subjectId: number, reason?: string): Promise<any> {
+    try {
+      const response = await api.delete(`/registrar/subject-management/${enrollmentId}/drop-subject/${subjectId}`, {
+        data: { reason }
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async getSubjectAuditTrail(enrollmentId: number): Promise<any> {
+    try {
+      const response = await api.get(`/registrar/subject-management/${enrollmentId}/audit-trail`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
 }
 
 export const registrarService = new RegistrarService();

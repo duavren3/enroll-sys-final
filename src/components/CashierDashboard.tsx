@@ -178,15 +178,27 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
         
         // Load installment payments separately
         const installmentResp = await cashierService.getInstallmentPayments({ status: 'Pending' });
-        const installments = installmentResp?.data || installmentResp || [];
+        let installments = installmentResp?.data || installmentResp || [];
         
-        // Create a set of (studentId, period) tuples to identify installment payments
-        const installmentSet = new Set(installments.map((ip: any) => `${ip.student_id}|${ip.period}`));
+        // Deduplicate: if same enrollment_id and period exist, keep only the latest one by id
+        const installmentMap = new Map<string, any>();
+        installments.forEach((ip: any) => {
+          const key = `${ip.enrollment_id}|${ip.period}`;
+          const existing = installmentMap.get(key);
+          // Keep the one with higher ID (more recent)
+          if (!existing || ip.id > existing.id) {
+            installmentMap.set(key, ip);
+          }
+        });
+        installments = Array.from(installmentMap.values());
+        
+        // Create a set of (enrollmentId, period) tuples to identify installment payments
+        const installmentSet = new Set(installments.map((ip: any) => `${ip.enrollment_id}|${ip.period}`));
         
         // Filter out installment payments from regular pending transactions
         // Installments have a 'period' field, so exclude those
         const regularPending = (resp?.data || resp || []).filter((pt: any) => {
-          const key = `${pt.student_id}|${pt.period}`;
+          const key = `${pt.enrollment_id}|${pt.period}`;
           return !installmentSet.has(key) && !pt.period;
         });
         
@@ -341,8 +353,8 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                 <p className="text-sm text-slate-500 text-center py-8">No pending transactions</p>
               ) : (
                 <div className="space-y-3">
-                  {transactions.slice(0, 5).map((tx) => (
-                    <div key={tx.id} className="p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+                  {transactions.slice(0, 5).map((tx, idx) => (
+                    <div key={`recent-${tx.id}-${idx}`} className="p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <p className="text-sm font-medium text-slate-900">{tx.student_name || 'Unknown Student'}</p>
@@ -430,8 +442,8 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
             <p className="text-sm text-slate-500 text-center py-8">No transactions found</p>
           ) : (
             <div className="space-y-4">
-              {transactions.map((tx) => (
-                <div key={tx.id} className="border rounded-lg overflow-hidden">
+              {transactions.map((tx, idx) => (
+                <div key={`tx-${tx.id}-${idx}`} className="border rounded-lg overflow-hidden">
                   {/* Transaction Header */}
                   <div 
                     className="p-4 bg-slate-50 cursor-pointer hover:bg-slate-100 transition-colors"
@@ -1001,15 +1013,27 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
         
         // Load installment payments separately
         const installmentResp = await cashierService.getInstallmentPayments({ status: 'Pending' });
-        const installments = installmentResp?.data || installmentResp || [];
+        let installments = installmentResp?.data || installmentResp || [];
         
-        // Create a set of (studentId, period) tuples to identify installment payments
-        const installmentSet = new Set(installments.map((ip: any) => `${ip.student_id}|${ip.period}`));
+        // Deduplicate: if same enrollment_id and period exist, keep only the latest one by id
+        const installmentMap = new Map<string, any>();
+        installments.forEach((ip: any) => {
+          const key = `${ip.enrollment_id}|${ip.period}`;
+          const existing = installmentMap.get(key);
+          // Keep the one with higher ID (more recent)
+          if (!existing || ip.id > existing.id) {
+            installmentMap.set(key, ip);
+          }
+        });
+        installments = Array.from(installmentMap.values());
+        
+        // Create a set of (enrollmentId, period) tuples to identify installment payments
+        const installmentSet = new Set(installments.map((ip: any) => `${ip.enrollment_id}|${ip.period}`));
         
         // Filter out installment payments from regular pending transactions
         // Installments have a 'period' field, so exclude those
         const regularPending = (resp?.data || resp || []).filter((pt: any) => {
-          const key = `${pt.student_id}|${pt.period}`;
+          const key = `${pt.enrollment_id}|${pt.period}`;
           return !installmentSet.has(key) && !pt.period;
         });
         
@@ -1124,7 +1148,7 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
                   const daysLate = isLate ? Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
 
                   return (
-                    <div key={ip.id} className={`border rounded-lg p-4 ${isLate ? 'bg-red-50 border-red-300' : 'bg-orange-50 border-orange-200'}`}>
+                    <div key={`${ip.enrollment_id}-${ip.period}-${ip.id}`} className={`border rounded-lg p-4 ${isLate ? 'bg-red-50 border-red-300' : 'bg-orange-50 border-orange-200'}`}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
@@ -1235,8 +1259,8 @@ export default function CashierDashboard({ onLogout }: CashierDashboardProps) {
               <p className="text-sm text-slate-500 ml-7">No pending regular payments for verification.</p>
             ) : (
               <div className="space-y-3 ml-7">
-                {pendingTransactions.map((pt: any) => (
-                  <div key={pt.id} className="border rounded-lg p-4">
+                {pendingTransactions.map((pt: any, idx: number) => (
+                  <div key={`pt-${pt.id}-${idx}`} className="border rounded-lg p-4">
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="text-sm font-medium">{pt.student_name} • {pt.student_id}</p>

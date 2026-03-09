@@ -278,6 +278,12 @@ export const updateStudent = async (req: AuthRequest, res: Response) => {
       updateFields.push('moral_certificate_status = ?');
       values.push(updateData.moral_certificate_status);
     }
+    
+    // Student classification (Regular/Irregular)
+    if (updateData.student_classification !== undefined) {
+      updateFields.push('student_classification = ?');
+      values.push(updateData.student_classification);
+    }
 
     // Always update updated_at
     updateFields.push('updated_at = datetime(\'now\')');

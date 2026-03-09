@@ -270,3 +270,106 @@ export const approveGrade = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// Get approved/finalized grades
+export const getApprovedGrades = async (req: AuthRequest, res: Response) => {
+  try {
+    // Ensure grade_status column exists
+    try {
+      const tableInfo = await query("PRAGMA table_info(enrollment_subjects)");
+      const hasGradeStatus = (tableInfo || []).some((c: any) => c.name === 'grade_status');
+      if (!hasGradeStatus) {
+        await run("ALTER TABLE enrollment_subjects ADD COLUMN grade_status TEXT DEFAULT NULL");
+      }
+    } catch (e) {}
+
+    const grades = await query(
+      `SELECT 
+        es.id,
+        es.enrollment_id,
+        es.subject_id,
+        es.grade,
+        es.grade_status,
+        REPLACE(CASE WHEN es.updated_at LIKE '%Z' THEN es.updated_at ELSE es.updated_at || 'Z' END, ' ', 'T') as updated_at,
+        s.subject_code,
+        s.subject_name,
+        s.units,
+        st.student_id,
+        st.first_name || ' ' || st.last_name as student_name,
+        st.course,
+        st.year_level,
+        e.school_year,
+        e.semester,
+        u.username as approved_by
+      FROM enrollment_subjects es
+      JOIN enrollments e ON es.enrollment_id = e.id
+      JOIN subjects s ON es.subject_id = s.id
+      JOIN students st ON e.student_id = st.id
+      LEFT JOIN grade_approvals ga ON es.id = ga.enrollment_subject_id
+      LEFT JOIN users u ON ga.approved_by = u.id
+      WHERE es.grade IS NOT NULL AND es.grade != '' AND es.grade_status = 'Approved'
+      ORDER BY es.updated_at DESC`
+    );
+
+    res.json({
+      success: true,
+      data: grades
+    });
+  } catch (error) {
+    console.error('Get approved grades error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
+
+// Get submitted grades pending dean approval (for registrar view)
+export const getSubmittedGrades = async (req: AuthRequest, res: Response) => {
+  try {
+    // Ensure grade_status column exists
+    try {
+      const tableInfo = await query("PRAGMA table_info(enrollment_subjects)");
+      const hasGradeStatus = (tableInfo || []).some((c: any) => c.name === 'grade_status');
+      if (!hasGradeStatus) {
+        await run("ALTER TABLE enrollment_subjects ADD COLUMN grade_status TEXT DEFAULT NULL");
+      }
+    } catch (e) {}
+
+    const grades = await query(
+      `SELECT 
+        es.id,
+        es.enrollment_id,
+        es.subject_id,
+        es.grade,
+        es.grade_status,
+        REPLACE(CASE WHEN es.updated_at LIKE '%Z' THEN es.updated_at ELSE es.updated_at || 'Z' END, ' ', 'T') as updated_at,
+        s.subject_code,
+        s.subject_name,
+        s.units,
+        st.student_id,
+        st.first_name || ' ' || st.last_name as student_name,
+        st.course,
+        st.year_level,
+        e.school_year,
+        e.semester
+      FROM enrollment_subjects es
+      JOIN enrollments e ON es.enrollment_id = e.id
+      JOIN subjects s ON es.subject_id = s.id
+      JOIN students st ON e.student_id = st.id
+      WHERE es.grade IS NOT NULL AND es.grade != '' AND es.grade_status = 'Submitted'
+      ORDER BY es.updated_at DESC`
+    );
+
+    res.json({
+      success: true,
+      data: grades
+    });
+  } catch (error) {
+    console.error('Get submitted grades error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+};
