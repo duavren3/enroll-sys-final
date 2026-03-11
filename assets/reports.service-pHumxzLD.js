@@ -1,0 +1,1 @@
+import{a as s,h as t}from"./index-Bf2MT8lB.js";class o{async exportStudentsCsv(){try{return(await s.get("/reports/students",{responseType:"blob"})).data}catch(r){throw new Error(t(r))}}async suggestSubjects(r){try{return(await s.get(`/reports/suggest-subjects/${encodeURIComponent(r)}`)).data}catch(e){throw new Error(t(e))}}}const p=new o;export{p as reportsService};
